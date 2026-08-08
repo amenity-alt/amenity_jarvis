@@ -11,16 +11,18 @@ class LLMError(Exception):
     pass
 
 
-def chat(api_key, base_url, model, messages, timeout=DEFAULT_TIMEOUT):
+def chat(api_key, base_url, model, messages, tools=None, timeout=DEFAULT_TIMEOUT):
     if not api_key:
         raise LLMError(
             "未配置 DEEPSEEK_API_KEY。请复制 .env.example 为 .env 并填入 API Key "
             "（申请地址 https://platform.deepseek.com）。"
         )
     url = base_url + "/chat/completions"
-    payload = json.dumps(
-        {"model": model, "messages": messages, "temperature": 0.7}
-    ).encode("utf-8")
+    payload = {"model": model, "messages": messages, "temperature": 0.7}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    payload = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=payload, method="POST")
     req.add_header("Content-Type", "application/json")
     req.add_header("Authorization", "Bearer " + api_key)
@@ -33,6 +35,6 @@ def chat(api_key, base_url, model, messages, timeout=DEFAULT_TIMEOUT):
     except urllib.error.URLError as exc:
         raise LLMError("网络错误: %s" % exc.reason)
     try:
-        return data["choices"][0]["message"]["content"].strip()
+        return data["choices"][0]["message"]
     except (KeyError, IndexError):
         raise LLMError("API 响应格式异常: %s" % str(data)[:300])

@@ -4,8 +4,8 @@ import datetime
 import os
 import subprocess
 import urllib.parse
-import urllib.request
 
+from .tools import get_weather
 from .voice import APP_ALIASES
 
 NOTES_FILE = os.path.join(
@@ -48,12 +48,9 @@ def skill_search(query):
 
 
 def skill_weather(query):
-    city = query.strip() or "上海"
+    city = query.strip()
     try:
-        url = "https://wttr.in/" + urllib.parse.quote(city) + "?format=3&lang=zh"
-        with urllib.request.urlopen(url, timeout=15) as resp:
-            text = resp.read().decode("utf-8").strip()
-        return text
+        return get_weather(city or None)
     except Exception as exc:
         return "查询天气失败：%s" % exc
 
@@ -94,6 +91,26 @@ SKILLS = [
     ("help", skill_help),
 ]
 
+TIME_WORDS = ("今天", "明天", "昨天", "后天", "大后天", "现在", "当前", "未来", "接下来")
+
+
+def _weather_city(text):
+    """从自然说法里提取城市：「北京天气」→ 北京；「今天天气怎么样」→ 空（自动定位）。"""
+    marker = "天气" if "天气" in text else ("气温" if "气温" in text else "")
+    if not marker:
+        return ""
+    head, tail = text.split(marker, 1)
+    filler = TIME_WORDS + ("怎么样", "怎样", "如何", "多少", "呢")
+
+    def clean(part):
+        for word in filler:
+            part = part.replace(word, "")
+        return part.strip(" ：:，,、")
+
+    head = clean(head)
+    tail = clean(tail)
+    return head or tail
+
 
 def try_skill(user_input):
     text = user_input.strip()
@@ -103,4 +120,6 @@ def try_skill(user_input):
     for name, fn in SKILLS:
         if text == name or text.startswith(name) and text[len(name)] in " ：:，,、":
             return ("ok", fn(text[len(name):].lstrip(" ：:，,、")))
+    if "天气" in text or "气温" in text:
+        return ("ok", skill_weather(_weather_city(text)))
     return (None, None)

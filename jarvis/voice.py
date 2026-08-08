@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import time
 
 APP_ALIASES = {
     "计算器": "Calculator",
@@ -71,7 +72,7 @@ def _stt_binary():
 
 def _compile_stt():
     binary = _stt_binary()
-    if os.path.exists(binary):
+    if os.path.exists(binary) and os.path.getmtime(binary) >= os.path.getmtime(_STT_SOURCE):
         return binary
     if shutil.which("swiftc") is None or not os.path.exists(_STT_SOURCE):
         return None
@@ -100,18 +101,21 @@ def listen(timeout=6):
     binary = _compile_stt()
     if not binary:
         return None
-    try:
-        result = subprocess.run(
-            [binary, "-t", str(timeout)],
-            capture_output=True,
-            text=True,
-            timeout=timeout + 20,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() or None
+    for attempt in range(2):
+        try:
+            result = subprocess.run(
+                [binary, "-t", str(timeout)],
+                capture_output=True,
+                text=True,
+                timeout=timeout + 20,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+        if attempt == 0:
+            time.sleep(1.0)
+    return None
 
 
 def _normalize(text):
@@ -141,7 +145,12 @@ def listen_for_wake(timeout=WAKE_TIMEOUT):
         for line in proc.stdout:
             text = _normalize(line)
             if any(phrase in text for phrase in WAKE_PHRASES):
-                proc.kill()
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except Exception:
+                    proc.kill()
+                time.sleep(0.6)
                 return True
         return False
     except Exception:

@@ -45,6 +45,17 @@ if wakeMode {
     request.contextualStrings = ["Hey Jarvis", "嘿 贾维斯", "你好贾维斯", "贾维斯"]
 }
 
+// 收到 SIGTERM（Python 检测到唤醒词后发出）时优雅停止，释放麦克风
+let sigSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+sigSource.setEventHandler {
+    if !finished {
+        audioEngine.stop()
+        request.endAudio()
+        exit(0)
+    }
+}
+sigSource.resume()
+
 // 3. 识别结果
 let task = recognizer.recognitionTask(with: request) { result, error in
     if let result = result {
