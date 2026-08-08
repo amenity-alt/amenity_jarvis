@@ -315,10 +315,25 @@ final class AvatarView: NSView {
 final class PanelView: NSView {
     var title = "JARVIS // 状态"
     var keys: [(String, String)] = []
+    var gauges: [(String, String)] = []
+    var sparks: [(String, String)] = []
     var info: [String: String] = [:]
     var log: [String] = []
 
     override var isOpaque: Bool { false }
+
+    private var labelAttrs: [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: NSColor(calibratedRed: 0.35, green: 0.75, blue: 0.95, alpha: 0.9),
+        ]
+    }
+    private var valueAttrs: [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: NSColor(calibratedRed: 0.7, green: 0.95, blue: 1.0, alpha: 1),
+        ]
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
@@ -337,7 +352,6 @@ final class PanelView: NSView {
         let titleY = bounds.height - 34
         (title as NSString).draw(at: NSPoint(x: 16, y: titleY), withAttributes: titleAttrs)
 
-        // 标题下装饰线
         let sep = NSBezierPath()
         sep.move(to: NSPoint(x: 14, y: titleY - 10))
         sep.line(to: NSPoint(x: bounds.width - 14, y: titleY - 10))
@@ -345,26 +359,20 @@ final class PanelView: NSView {
         sep.lineWidth = 0.5
         sep.stroke()
 
-        // 计算内容总高度，垂直居中分布
         let rowH: CGFloat = 27
-        let sectionH: CGFloat = 22
+        let gaugeH: CGFloat = 26
+        let sparkH: CGFloat = 78
+        let sectionH: CGFloat = 24
         let lineH: CGFloat = 19
-        var contentH = titleY - 10 + 10 + CGFloat(keys.count) * rowH
-        if !log.isEmpty {
-            contentH += sectionH + CGFloat(log.count) * lineH + 10
-        }
-        let startY = max(24, (bounds.height - contentH) / 2 + 24)
 
-        let rowFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let labelAttrs: [NSAttributedString.Key: Any] = [
-            .font: rowFont,
-            .foregroundColor: NSColor(calibratedRed: 0.35, green: 0.75, blue: 0.95, alpha: 0.9),
-        ]
-        let valueAttrs: [NSAttributedString.Key: Any] = [
-            .font: rowFont,
-            .foregroundColor: NSColor(calibratedRed: 0.7, green: 0.95, blue: 1.0, alpha: 1),
-        ]
-        var y = startY + CGFloat(keys.count - 1) * rowH
+        var totalH: CGFloat = CGFloat(keys.count) * rowH
+        if !gauges.isEmpty { totalH += 6 + sectionH + CGFloat(gauges.count) * gaugeH }
+        if !sparks.isEmpty { totalH += 6 + sectionH + CGFloat(sparks.count) * sparkH }
+        if !log.isEmpty { totalH += 6 + sectionH + CGFloat(log.count) * lineH + 8 }
+
+        var y = bounds.height - max(64, (bounds.height - totalH) / 2)
+
+        // 数据行
         for (label, key) in keys {
             let value = truncate(info[key] ?? "—", 26)
             (label as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: labelAttrs)
@@ -372,13 +380,32 @@ final class PanelView: NSView {
             y -= rowH
         }
 
+        // 仪表条
+        if !gauges.isEmpty {
+            y -= 6
+            drawSection("—— 仪表 ——", at: y)
+            y -= sectionH
+            for (label, key) in gauges {
+                drawGauge(label: label, pct: info[key] ?? "0", at: y)
+                y -= gaugeH
+            }
+        }
+
+        // 趋势曲线
+        if !sparks.isEmpty {
+            y -= 6
+            drawSection("—— 趋势 ——", at: y)
+            y -= sectionH
+            for (label, key) in sparks {
+                drawSpark(label: label, raw: info[key] ?? "", at: y)
+                y -= sparkH
+            }
+        }
+
+        // 活动日志
         if !log.isEmpty {
             y -= 8
-            let secAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor(calibratedRed: 0.4, green: 0.8, blue: 1.0, alpha: 0.7),
-            ]
-            ("—— 活动日志 ——" as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: secAttrs)
+            drawSection("—— 活动日志 ——", at: y)
             y -= sectionH
             let logAttrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
@@ -388,6 +415,101 @@ final class PanelView: NSView {
                 (truncate(line, 38) as NSString).draw(at: NSPoint(x: 18, y: y), withAttributes: logAttrs)
                 y -= lineH
             }
+        }
+    }
+
+    private func drawSection(_ label: String, at y: CGFloat) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor(calibratedRed: 0.4, green: 0.8, blue: 1.0, alpha: 0.7),
+        ]
+        (label as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: attrs)
+    }
+
+    private func drawGauge(label: String, pct raw: String, at y: CGFloat) {
+        let pct = min(100, max(0, CGFloat(Double(raw) ?? 0)))
+        let barH: CGFloat = 12
+        let barX: CGFloat = 88
+        let barW = bounds.width - 88 - 60
+        let barY = y + 1
+        (label as NSString).draw(at: NSPoint(x: 16, y: y + 1), withAttributes: labelAttrs)
+
+        let bg = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: barW, height: barH),
+                              xRadius: 6, yRadius: 6)
+        NSColor(calibratedWhite: 0.16, alpha: 0.55).setFill()
+        bg.fill()
+
+        if pct > 0.5 {
+            let fill = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: max(4, barW * pct / 100), height: barH),
+                                    xRadius: 6, yRadius: 6)
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedRed: 0.15, green: 0.6, blue: 1.0, alpha: 0.9),
+                NSColor(calibratedRed: 0.45, green: 0.9, blue: 1.0, alpha: 0.95),
+            ])!
+            gradient.draw(in: fill, angle: 0)
+        }
+        (String(format: "%.0f%%", pct) as NSString).draw(at: NSPoint(x: barX + barW + 8, y: y + 1), withAttributes: valueAttrs)
+    }
+
+    private func numbers(from raw: String) -> [CGFloat] {
+        raw.split(separator: ",").compactMap { CGFloat(Double($0.trimmingCharacters(in: .whitespaces)) ?? 0) }
+    }
+
+    private func drawSpark(label: String, raw: String, at y: CGFloat) {
+        let values = numbers(from: raw)
+        let chartH: CGFloat = 52
+        let chartY = y - chartH
+        (label as NSString).draw(at: NSPoint(x: 16, y: y - 14), withAttributes: labelAttrs)
+        guard values.count > 1 else { return }
+
+        let chartX: CGFloat = 18
+        let chartW = bounds.width - 36
+        let lo = values.min() ?? 0
+        let hi = max(values.max() ?? 1, lo + 0.001)
+        let span = hi - lo
+        let pts: [NSPoint] = values.enumerated().map { i, v in
+            let x = chartX + CGFloat(i) / CGFloat(values.count - 1) * chartW
+            let yy = chartY + (v - lo) / span * (chartH - 8) + 4
+            return NSPoint(x: x, y: yy)
+        }
+
+        // 网格线
+        for g in 0...2 {
+            let gy = chartY + CGFloat(g) / 2 * (chartH - 8) + 4
+            let grid = NSBezierPath()
+            grid.move(to: NSPoint(x: chartX, y: gy))
+            grid.line(to: NSPoint(x: chartX + chartW, y: gy))
+            NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.12).setStroke()
+            grid.lineWidth = 0.5
+            grid.stroke()
+        }
+
+        // 填充区域
+        let area = NSBezierPath()
+        area.move(to: pts[0])
+        for p in pts.dropFirst() { area.line(to: p) }
+        area.line(to: NSPoint(x: pts.last!.x, y: chartY))
+        area.line(to: NSPoint(x: pts[0].x, y: chartY))
+        area.close()
+        NSColor(calibratedRed: 0.2, green: 0.7, blue: 1.0, alpha: 0.10).setFill()
+        area.fill()
+
+        // 光晕 + 主线
+        let line = NSBezierPath()
+        line.move(to: pts[0])
+        for p in pts.dropFirst() { line.line(to: p) }
+        NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.25).setStroke()
+        line.lineWidth = 4
+        line.stroke()
+        NSColor(calibratedRed: 0.55, green: 0.92, blue: 1.0, alpha: 0.95).setStroke()
+        line.lineWidth = 1.5
+        line.stroke()
+
+        // 最新点高亮
+        if let last = pts.last {
+            let dot = NSBezierPath(ovalIn: NSRect(x: last.x - 2.5, y: last.y - 2.5, width: 5, height: 5))
+            NSColor(calibratedRed: 0.85, green: 0.99, blue: 1.0, alpha: 1).setFill()
+            dot.fill()
         }
     }
 
@@ -438,6 +560,8 @@ leftPanel.keys = [
     ("负载", "load"), ("内存", "mem"), ("磁盘", "disk"), ("网络", "net"),
     ("IP", "ip"), ("运行", "uptime"), ("进程", "processes"), ("系统", "kernel"),
 ]
+leftPanel.gauges = [("电池", "batt_pct"), ("内存", "mem_pct"), ("磁盘", "disk_pct")]
+leftPanel.sparks = [("负载趋势", "load_hist"), ("网络延迟", "net_hist")]
 let leftWindow = NSWindow(contentRect: panelRect(width: panelW, left: true),
                           styleMask: [.borderless], backing: .buffered, defer: false)
 leftWindow.isOpaque = false
@@ -454,8 +578,9 @@ let rightPanel = PanelView(frame: NSRect(x: 0, y: 0, width: panelW, height: 700)
 rightPanel.title = "JARVIS // 系统状态"
 rightPanel.keys = [
     ("状态", "status"), ("模型", "model"), ("延迟", "latency"), ("会话", "session"),
-    ("进程", "processes"), ("系统", "kernel"), ("IP", "ip"),
+    ("进程", "processes"),
 ]
+rightPanel.sparks = [("接口延迟", "latency_hist"), ("电量趋势", "batt_hist")]
 let rightWindow = NSWindow(contentRect: panelRect(width: panelW, left: false),
                            styleMask: [.borderless], backing: .buffered, defer: false)
 rightWindow.isOpaque = false

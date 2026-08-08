@@ -11,6 +11,13 @@ _WEATHER_TTL = 1800
 _NET_CACHE = {"at": 0.0, "text": "网络检测中…"}
 _NET_TTL = 15
 
+# 趋势历史（面板图表用，各保留 40 个采样点）
+_LOAD_HIST = []
+_MEM_HIST = []
+_BATT_HIST = []
+_NET_HIST = []
+LATENCY_HIST = []
+
 
 def _run(cmd):
     try:
@@ -124,7 +131,9 @@ def network():
         return _NET_CACHE["text"]
     out = _run(["ping", "-c", "1", "-W", "800", "223.5.5.5"])
     if "1 packets transmitted" in out and "1 packets received" in out:
-        text = "网络 在线"
+        match = re.search(r"time=([\d.]+) ms", out)
+        ms = match.group(1) if match else "?"
+        text = "网络 在线 %sms" % ms
     elif out:
         text = "网络 离线"
     else:
@@ -135,17 +144,51 @@ def network():
 
 def collect():
     now = datetime.datetime.now()
+    load_txt = loadavg()
+    mem_txt = memory()
+    disk_txt = disk()
+    batt_txt = battery()
+    net_txt = network()
+
+    def first_num(pattern, text, default=0.0):
+        m = re.search(pattern, text)
+        return float(m.group(1)) if m else default
+
+    load1 = first_num(r"负载 ([\d.]+)", load_txt)
+    mem_m = re.search(r"内存 ([\d.]+)G / ([\d.]+)G", mem_txt)
+    mem_pct = float(mem_m.group(1)) / float(mem_m.group(2)) * 100 if mem_m else 0.0
+    disk_m = re.search(r"磁盘 ([\d.]+)G / ([\d.]+)G", disk_txt)
+    disk_pct = float(disk_m.group(1)) / float(disk_m.group(2)) * 100 if disk_m else 0.0
+    batt_pct = first_num(r"电量 ([\d.]+)%", batt_txt)
+    net_ms = first_num(r"在线 ([\d.]+)ms", net_txt)
+
+    _LOAD_HIST.append(load1)
+    _MEM_HIST.append(mem_pct)
+    _BATT_HIST.append(batt_pct)
+    _NET_HIST.append(net_ms)
+
+    def hist(values):
+        return ",".join("%.1f" % v for v in values[-40:])
+
     return {
         "time": now.strftime("%H:%M:%S"),
         "date": now.strftime("%Y-%m-%d %A"),
         "weather": weather(),
-        "battery": battery(),
-        "load": loadavg(),
-        "mem": memory(),
-        "disk": disk(),
-        "net": network(),
+        "battery": batt_txt,
+        "load": load_txt,
+        "mem": mem_txt,
+        "disk": disk_txt,
+        "net": net_txt,
         "ip": ip(),
         "uptime": uptime(),
         "kernel": kernel(),
         "processes": processes(),
+        "batt_pct": "%.0f" % batt_pct,
+        "mem_pct": "%.0f" % mem_pct,
+        "disk_pct": "%.0f" % disk_pct,
+        "load_hist": hist(_LOAD_HIST),
+        "mem_hist": hist(_MEM_HIST),
+        "batt_hist": hist(_BATT_HIST),
+        "net_hist": hist(_NET_HIST),
+        "latency_hist": hist(LATENCY_HIST),
     }

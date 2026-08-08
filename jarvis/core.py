@@ -121,6 +121,7 @@ def run(config, voice_mode=False, command=None, wake=False):
                 tools=tools.TOOLS,
             )
             state["latency"] = int((time.time() - start) * 1000)
+            envinfo.LATENCY_HIST.append(state["latency"])
             if not message.get("tool_calls"):
                 return (message.get("content") or "").strip()
             messages.append(
