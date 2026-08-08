@@ -311,34 +311,49 @@ final class AvatarView: NSView {
     }
 }
 
-// ---------- 环境信息面板 ----------
+// ---------- 全息信息面板 ----------
 final class PanelView: NSView {
+    var title = "JARVIS // 状态"
+    var keys: [(String, String)] = []
     var info: [String: String] = [:]
+    var log: [String] = []
 
     override var isOpaque: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
         let bg = NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14)
-        NSColor(calibratedWhite: 0.02, alpha: 0.62).setFill()
+        NSColor(calibratedWhite: 0.02, alpha: 0.60).setFill()
         bg.fill()
         NSColor(calibratedRed: 0.25, green: 0.8, blue: 1.0, alpha: 0.35).setStroke()
         bg.lineWidth = 1
         bg.stroke()
 
-        let title = "JARVIS // 环境信息" as NSString
         let titleFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-        title.draw(at: NSPoint(x: 16, y: bounds.height - 30), withAttributes: [
+        let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
             .foregroundColor: NSColor(calibratedRed: 0.5, green: 0.9, blue: 1.0, alpha: 0.9),
-        ])
+        ]
+        let titleY = bounds.height - 34
+        (title as NSString).draw(at: NSPoint(x: 16, y: titleY), withAttributes: titleAttrs)
 
+        // 标题下装饰线
         let sep = NSBezierPath()
-        sep.move(to: NSPoint(x: 14, y: bounds.height - 40))
-        sep.line(to: NSPoint(x: bounds.width - 14, y: bounds.height - 40))
+        sep.move(to: NSPoint(x: 14, y: titleY - 10))
+        sep.line(to: NSPoint(x: bounds.width - 14, y: titleY - 10))
         NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.25).setStroke()
         sep.lineWidth = 0.5
         sep.stroke()
+
+        // 计算内容总高度，垂直居中分布
+        let rowH: CGFloat = 27
+        let sectionH: CGFloat = 22
+        let lineH: CGFloat = 19
+        var contentH = titleY - 10 + 10 + CGFloat(keys.count) * rowH
+        if !log.isEmpty {
+            contentH += sectionH + CGFloat(log.count) * lineH + 10
+        }
+        let startY = max(24, (bounds.height - contentH) / 2 + 24)
 
         let rowFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         let labelAttrs: [NSAttributedString.Key: Any] = [
@@ -349,20 +364,30 @@ final class PanelView: NSView {
             .font: rowFont,
             .foregroundColor: NSColor(calibratedRed: 0.7, green: 0.95, blue: 1.0, alpha: 1),
         ]
-        let rows: [(String, String)] = [
-            ("时间", info["time"] ?? "--:--:--"),
-            ("日期", info["date"] ?? "----"),
-            ("天气", truncate(info["weather"] ?? "获取中…", 26)),
-            ("电池", info["battery"] ?? "未知"),
-            ("负载", info["load"] ?? "未知"),
-            ("内存", info["mem"] ?? "未知"),
-            ("网络", info["net"] ?? "检测中"),
-        ]
-        var y = bounds.height - 62
-        for (label, value) in rows {
+        var y = startY + CGFloat(keys.count - 1) * rowH
+        for (label, key) in keys {
+            let value = truncate(info[key] ?? "—", 26)
             (label as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: labelAttrs)
             (value as NSString).draw(at: NSPoint(x: 76, y: y), withAttributes: valueAttrs)
-            y -= 24
+            y -= rowH
+        }
+
+        if !log.isEmpty {
+            y -= 8
+            let secAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: NSColor(calibratedRed: 0.4, green: 0.8, blue: 1.0, alpha: 0.7),
+            ]
+            ("—— 活动日志 ——" as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: secAttrs)
+            y -= sectionH
+            let logAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: NSColor(calibratedRed: 0.55, green: 0.88, blue: 1.0, alpha: 0.85),
+            ]
+            for line in log {
+                (truncate(line, 38) as NSString).draw(at: NSPoint(x: 18, y: y), withAttributes: logAttrs)
+                y -= lineH
+            }
         }
     }
 
@@ -395,26 +420,58 @@ avatarWindow.contentView = avatarView
 avatarWindow.center()
 avatarWindow.orderFrontRegardless()
 
-// 左下角环境信息面板
-let panelView = PanelView(frame: NSRect(x: 0, y: 0, width: 340, height: 232))
-let panelWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 232),
-                           styleMask: [.borderless], backing: .buffered, defer: false)
-panelWindow.isOpaque = false
-panelWindow.backgroundColor = .clear
-panelWindow.hasShadow = false
-panelWindow.level = .floating
-panelWindow.isMovableByWindowBackground = true
-panelWindow.collectionBehavior = [.canJoinAllSpaces, .stationary]
-panelWindow.contentView = panelView
-if let screen = NSScreen.main?.visibleFrame {
-    panelWindow.setFrameOrigin(NSPoint(x: screen.minX + 24, y: screen.minY + 24))
+// 左侧环境信息面板（底部到顶部）
+func panelRect(width: CGFloat, left: Bool) -> NSRect {
+    if let screen = NSScreen.main?.visibleFrame {
+        let h = screen.height - 48
+        let x = left ? screen.minX + 20 : screen.maxX - 20 - width
+        return NSRect(x: x, y: screen.minY + 24, width: width, height: h)
+    }
+    return NSRect(x: left ? 24 : 0, y: 24, width: width, height: 700)
 }
-panelWindow.orderFrontRegardless()
+
+let panelW: CGFloat = 340
+let leftPanel = PanelView(frame: NSRect(x: 0, y: 0, width: panelW, height: 700))
+leftPanel.title = "JARVIS // 环境信息"
+leftPanel.keys = [
+    ("时间", "time"), ("日期", "date"), ("天气", "weather"), ("电池", "battery"),
+    ("负载", "load"), ("内存", "mem"), ("磁盘", "disk"), ("网络", "net"),
+    ("IP", "ip"), ("运行", "uptime"), ("进程", "processes"), ("系统", "kernel"),
+]
+let leftWindow = NSWindow(contentRect: panelRect(width: panelW, left: true),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+leftWindow.isOpaque = false
+leftWindow.backgroundColor = .clear
+leftWindow.hasShadow = false
+leftWindow.level = .floating
+leftWindow.isMovableByWindowBackground = true
+leftWindow.collectionBehavior = [.canJoinAllSpaces, .stationary]
+leftWindow.contentView = leftPanel
+leftWindow.orderFrontRegardless()
+
+// 右侧系统状态面板（底部到顶部）
+let rightPanel = PanelView(frame: NSRect(x: 0, y: 0, width: panelW, height: 700))
+rightPanel.title = "JARVIS // 系统状态"
+rightPanel.keys = [
+    ("状态", "status"), ("模型", "model"), ("延迟", "latency"), ("会话", "session"),
+    ("进程", "processes"), ("系统", "kernel"), ("IP", "ip"),
+]
+let rightWindow = NSWindow(contentRect: panelRect(width: panelW, left: false),
+                           styleMask: [.borderless], backing: .buffered, defer: false)
+rightWindow.isOpaque = false
+rightWindow.backgroundColor = .clear
+rightWindow.hasShadow = false
+rightWindow.level = .floating
+rightWindow.isMovableByWindowBackground = true
+rightWindow.collectionBehavior = [.canJoinAllSpaces, .stationary]
+rightWindow.contentView = rightPanel
+rightWindow.orderFrontRegardless()
 
 // 30fps 动画刷新
 let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { _ in
     avatarView.needsDisplay = true
-    panelView.needsDisplay = true
+    leftPanel.needsDisplay = true
+    rightPanel.needsDisplay = true
 }
 RunLoop.main.add(timer, forMode: .common)
 
@@ -433,10 +490,12 @@ FileHandle.standardInput.readabilityHandler = { handle in
                 avatarView.mode = command
             case "show":
                 avatarWindow.orderFrontRegardless()
-                panelWindow.orderFrontRegardless()
+                leftWindow.orderFrontRegardless()
+                rightWindow.orderFrontRegardless()
             case "hide":
                 avatarWindow.orderOut(nil)
-                panelWindow.orderOut(nil)
+                leftWindow.orderOut(nil)
+                rightWindow.orderOut(nil)
             case "center":
                 avatarWindow.center()
             case "quit":
@@ -446,7 +505,9 @@ FileHandle.standardInput.readabilityHandler = { handle in
                     let json = String(command.dropFirst(5))
                     if let data = json.data(using: .utf8),
                        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
-                        panelView.info = obj
+                        leftPanel.info = obj
+                        rightPanel.info = obj
+                        rightPanel.log = (obj["log"] ?? "").split(separator: "\n").map(String.init)
                     }
                 }
             }

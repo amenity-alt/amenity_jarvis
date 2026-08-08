@@ -2,6 +2,7 @@
 
 import datetime
 import re
+import socket
 import subprocess
 import time
 
@@ -72,6 +73,51 @@ def memory():
     return "内存 %.1fG / %.0fG" % (used_gb, total_gb)
 
 
+def disk():
+    out = _run(["df", "-k", "/"])
+    lines = out.splitlines()
+    if len(lines) >= 2:
+        parts = lines[1].split()
+        if len(parts) >= 4:
+            used = int(parts[2]) / 1024 ** 2
+            total = int(parts[1]) / 1024 ** 2
+            return "磁盘 %.0fG / %.0fG" % (used, total)
+    return "磁盘 未知"
+
+
+def ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return "IP " + ip
+    except Exception:
+        return "IP 未知"
+
+
+def uptime():
+    out = _run(["sysctl", "-n", "kern.boottime"])
+    match = re.search(r"sec = (\d+)", out)
+    if match:
+        secs = int(time.time()) - int(match.group(1))
+        days, rem = divmod(secs, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes = rem // 60
+        return "运行 %d天%d小时%d分" % (days, hours, minutes)
+    return "运行 未知"
+
+
+def kernel():
+    ver = _run(["sw_vers", "-productVersion"])
+    return "系统 macOS " + ver if ver else "系统 未知"
+
+
+def processes():
+    count = _run(["ps", "-A", "-o", "pid="]).count("\n")
+    return "进程 %d" % count
+
+
 def network():
     now = time.time()
     if now - _NET_CACHE["at"] < _NET_TTL:
@@ -96,5 +142,10 @@ def collect():
         "battery": battery(),
         "load": loadavg(),
         "mem": memory(),
+        "disk": disk(),
         "net": network(),
+        "ip": ip(),
+        "uptime": uptime(),
+        "kernel": kernel(),
+        "processes": processes(),
     }
