@@ -90,8 +90,8 @@ def _compile_voice_play():
         return None
 
 
-def speak(text, voice=None, tech=True):
-    """朗读文本：先用 say 渲染成音频，再过科幻处理链播放。"""
+def speak(text, voice=None, tech=False):
+    """朗读文本：默认用自然中文女声（Tingting）；tech=True 时过科幻处理链。"""
     if not available():
         return False
     voice = voice or chinese_voice()
