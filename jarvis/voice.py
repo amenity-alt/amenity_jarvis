@@ -151,7 +151,7 @@ def listen_for_wake(timeout=WAKE_TIMEOUT):
                     proc.wait(timeout=3)
                 except Exception:
                     proc.kill()
-                time.sleep(0.6)
+                time.sleep(1.0)
                 return True
         return False
     except Exception:

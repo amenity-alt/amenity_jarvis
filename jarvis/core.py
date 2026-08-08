@@ -31,7 +31,7 @@ def run(config, voice_mode=False, command=None, wake=False):
         if av:
             av.command("speak")
         if sfx_mode:
-            sfx.play(sfx_mode)
+            sfx.play(sfx_mode, wait=True)
         print("Jarvis:", text)
         if voice_mode:
             voice.speak(text, voice=v)
@@ -42,7 +42,7 @@ def run(config, voice_mode=False, command=None, wake=False):
         if voice_mode:
             if av:
                 av.command("listen")
-            sfx.play("listen")
+            sfx.play("listen", wait=True)
             print("你: ", end="", flush=True)
             spoken = voice.listen(timeout=8)
             if spoken:
@@ -121,7 +121,8 @@ def run(config, voice_mode=False, command=None, wake=False):
                 if av:
                     av.start("idle")
                     start_panel()
-                respond("在", sfx_mode="wake")
+                sfx.play("wake", wait=True)
+                respond("在", sfx_mode=None)
                 return True
             print("🔊 待机中：说「Hey Jarvis」唤醒我。", flush=True)
 

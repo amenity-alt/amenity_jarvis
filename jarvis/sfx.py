@@ -70,27 +70,27 @@ def _mix(base, extra, offset):
 
 
 def _build():
-    # 唤醒：低频铺垫 + 上扬滑音（约 2.3 秒），带回声
+    # 唤醒：低频铺垫 + 上扬滑音（约 2.2 秒），带回声
     wake = _mix(
-        _sweep(250, 1500, 1.6, 0.45),
-        _sweep(90, 320, 1.6, 0.30, harmonics=0.6),
+        _sweep(250, 1500, 1.2, 0.45),
+        _sweep(90, 320, 1.2, 0.30, harmonics=0.6),
         0.0,
     )
-    wake = _echo(wake, 0.22, 0.30, 5)
+    wake = _echo(wake, 0.22, 0.28, 5)
 
-    # 聆听：三连升调（660→880→1320），约 1.1 秒
-    listen = _mix(_tone(660, 0.16, 0.35), _tone(880, 0.16, 0.35), 0.13)
-    listen = _mix(listen, _tone(1320, 0.22, 0.35), 0.26)
-    listen = _echo(listen, 0.12, 0.25, 4)
+    # 聆听：三连升调（660→880→1320），约 0.8 秒
+    listen = _mix(_tone(660, 0.12, 0.35), _tone(880, 0.12, 0.35), 0.10)
+    listen = _mix(listen, _tone(1320, 0.16, 0.35), 0.20)
+    listen = _echo(listen, 0.10, 0.22, 4)
 
-    # 说话：大幅下滑音（约 1.9 秒），空间感
-    speak = _sweep(1500, 220, 1.3, 0.40)
-    speak = _echo(speak, 0.20, 0.35, 5)
+    # 说话：大幅下滑音（约 1.4 秒），空间感
+    speak = _sweep(1400, 250, 0.9, 0.40)
+    speak = _echo(speak, 0.18, 0.30, 5)
 
-    # 确认：C 大调和弦长音（523/659/784），约 1.6 秒
-    confirm = _mix(_tone(523, 0.6, 0.30), _tone(659, 0.6, 0.28), 0.0)
-    confirm = _mix(confirm, _tone(784, 0.7, 0.26), 0.02)
-    confirm = _echo(confirm, 0.25, 0.30, 4)
+    # 确认：C 大调和弦长音（523/659/784），约 1.5 秒
+    confirm = _mix(_tone(523, 0.5, 0.30), _tone(659, 0.5, 0.28), 0.0)
+    confirm = _mix(confirm, _tone(784, 0.6, 0.26), 0.02)
+    confirm = _echo(confirm, 0.22, 0.28, 4)
 
     return {
         "wake": wake,
@@ -113,7 +113,7 @@ def _write_wav(path, samples):
 
 def ensure():
     """生成缺失的音效文件（源版本变化时自动重建）。"""
-    marker = os.path.join(_SFX_DIR, ".v3")
+    marker = os.path.join(_SFX_DIR, ".v4")
     if os.path.exists(marker):
         return
     for name, samples in _build().items():
@@ -121,16 +121,16 @@ def ensure():
     open(marker, "w").close()
 
 
-def play(name, volume=0.6):
+def play(name, volume=0.6, wait=False):
     ensure()
     path = os.path.join(_SFX_DIR, name + ".wav")
     if not os.path.exists(path) or shutil.which("afplay") is None:
         return
     try:
-        subprocess.Popen(
-            ["afplay", "-v", str(volume), path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        cmd = ["afplay", "-v", str(volume), path]
+        if wait:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
