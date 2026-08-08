@@ -1,6 +1,8 @@
 """Jarvis 主循环：先匹配本地技能，再交给 LLM。"""
 
-from . import avatar, skills, tools, voice
+import threading
+
+from . import avatar, envinfo, sfx, skills, tools, voice
 from .llm import LLMError, chat
 
 SYSTEM_PROMPT = (
@@ -16,6 +18,8 @@ def _build_messages(history):
 def run(config, voice_mode=False, command=None, wake=False):
     v = voice.chinese_voice() if voice_mode else None
     av = avatar.Avatar() if wake else None
+    panel_started = [False]
+    panel_stop = threading.Event()
     history = []
     print("🤖 Jarvis 已启动。输入「帮助」查看本地技能，「退出」结束对话。")
     if voice_mode:
@@ -23,9 +27,11 @@ def run(config, voice_mode=False, command=None, wake=False):
     if wake:
         print("🔊 待机中：说「Hey Jarvis」唤醒我。")
 
-    def respond(text):
+    def respond(text, sfx_mode="speak"):
         if av:
             av.command("speak")
+        if sfx_mode:
+            sfx.play(sfx_mode)
         print("Jarvis:", text)
         if voice_mode:
             voice.speak(text, voice=v)
@@ -36,6 +42,7 @@ def run(config, voice_mode=False, command=None, wake=False):
         if voice_mode:
             if av:
                 av.command("listen")
+            sfx.play("listen")
             print("你: ", end="", flush=True)
             spoken = voice.listen(timeout=8)
             if spoken:
@@ -44,6 +51,22 @@ def run(config, voice_mode=False, command=None, wake=False):
             print("（没听到，请再说一次，或直接打字）", flush=True)
             return input("").strip()
         return input("你: ").strip()
+
+    def start_panel():
+        """后台线程：每 5 秒把环境信息推给面板。"""
+        if not av or panel_started[0]:
+            return
+        panel_started[0] = True
+
+        def loop():
+            while not panel_stop.is_set():
+                try:
+                    av.set_info(envinfo.collect())
+                except Exception:
+                    pass
+                panel_stop.wait(5)
+
+        threading.Thread(target=loop, daemon=True).start()
 
     def handle(user_input):
         kind, result = skills.try_skill(user_input)
@@ -97,13 +120,15 @@ def run(config, voice_mode=False, command=None, wake=False):
             if voice.listen_for_wake():
                 if av:
                     av.start("idle")
-                respond("在")
+                    start_panel()
+                respond("在", sfx_mode="wake")
                 return True
             print("🔊 待机中：说「Hey Jarvis」唤醒我。", flush=True)
 
     if command:
         handle(command)
         if av:
+            panel_stop.set()
             av.stop()
         return
 
@@ -133,4 +158,5 @@ def run(config, voice_mode=False, command=None, wake=False):
         if not handle(user_input):
             break
     if av:
+        panel_stop.set()
         av.stop()

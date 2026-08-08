@@ -7,6 +7,27 @@ import urllib.request
 from html.parser import HTMLParser
 
 TIMEOUT = 15
+WEATHER_ZH = {
+    "sunny": "晴",
+    "clear": "晴",
+    "partly cloudy": "多云",
+    "cloudy": "多云",
+    "overcast": "阴",
+    "light rain": "小雨",
+    "light drizzle": "毛毛雨",
+    "drizzle": "毛毛雨",
+    "rain": "雨",
+    "heavy rain": "大雨",
+    "moderate rain": "中雨",
+    "thunderstorm": "雷阵雨",
+    "light snow": "小雪",
+    "snow": "雪",
+    "heavy snow": "大雪",
+    "fog": "雾",
+    "mist": "薄雾",
+    "haze": "霾",
+    "windy": "大风",
+}
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -29,7 +50,8 @@ def get_weather(city=None):
     cur = data["current_condition"][0]
     area = data.get("nearest_area", [{}])[0]
     area_name = area.get("areaName", [{}])[0].get("value", city or "当前位置")
-    desc = cur.get("weatherDesc", [{}])[0].get("value", "未知")
+    desc_en = cur.get("weatherDesc", [{}])[0].get("value", "未知")
+    desc = WEATHER_ZH.get(desc_en.lower(), desc_en)
     temp = cur.get("temp_C", "?")
     feels = cur.get("FeelsLikeC", "?")
     humidity = cur.get("humidity", "?")

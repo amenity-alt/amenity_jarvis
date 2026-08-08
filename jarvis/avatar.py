@@ -1,6 +1,7 @@
 """Jarvis 全息头像：钢铁侠风格浮动窗口（macOS Swift 实现）。"""
 
 import os
+import json
 import shutil
 import subprocess
 
@@ -65,6 +66,16 @@ class Avatar:
         if self.active and self._proc.stdin:
             try:
                 self._proc.stdin.write((mode + "\n").encode())
+                self._proc.stdin.flush()
+            except Exception:
+                pass
+
+    def set_info(self, data):
+        """向面板发送环境信息（dict → JSON）。"""
+        if self.active and self._proc.stdin:
+            try:
+                line = "info:" + json.dumps(data, ensure_ascii=False) + "\n"
+                self._proc.stdin.write(line.encode())
                 self._proc.stdin.flush()
             except Exception:
                 pass
