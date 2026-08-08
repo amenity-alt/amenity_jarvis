@@ -47,7 +47,8 @@ def _voices():
 
 
 def chinese_voice():
-    for candidate in ["Tingting", "Meijia", "Sinji"]:
+    # 优先中文男声（Rocko 低沉，最适合 Jarvis），退回女声
+    for candidate in ["Rocko", "Eddy", "Reed", "Grandpa", "Tingting", "Meijia", "Sinji"]:
         if candidate in _voices():
             return candidate
     return None

@@ -1,4 +1,4 @@
-"""Jarvis 音效：程序生成的科幻提示音（wake / listen / speak / confirm），afplay 播放。"""
+"""Jarvis 音效：程序合成的科幻提示音（wake / listen / speak / confirm），afplay 播放。"""
 
 import math
 import os
@@ -11,8 +11,24 @@ _SFX_DIR = os.path.join(os.path.expanduser("~"), ".jarvis", "sfx")
 _RATE = 44100
 
 
-def _sweep(f0, f1, dur, vol=0.5):
-    """频率滑音：f0 → f1，带淡入淡出包络。"""
+def _tone(freq, dur, vol=0.5, harmonics=1.0):
+    """带泛音的音调，起音快、自然衰减，金属感更强。"""
+    n = int(_RATE * dur)
+    samples = []
+    phase = 0.0
+    for i in range(n):
+        t = i / n
+        env = math.sin(math.pi * t) ** 1.2
+        s = math.sin(phase)
+        s += harmonics * 0.5 * math.sin(2 * phase)
+        s += harmonics * 0.25 * math.sin(3 * phase)
+        samples.append(vol * env * s)
+        phase += 2 * math.pi * freq / _RATE
+    return samples
+
+
+def _sweep(f0, f1, dur, vol=0.5, harmonics=1.0):
+    """频率滑音（带泛音），淡入淡出。"""
     n = int(_RATE * dur)
     samples = []
     phase = 0.0
@@ -21,17 +37,25 @@ def _sweep(f0, f1, dur, vol=0.5):
         freq = f0 + (f1 - f0) * (t ** 1.5)
         phase += 2 * math.pi * freq / _RATE
         env = math.sin(math.pi * t) ** 1.4
-        samples.append(vol * env * math.sin(phase))
+        s = math.sin(phase)
+        s += harmonics * 0.4 * math.sin(2 * phase)
+        s += harmonics * 0.2 * math.sin(3 * phase)
+        samples.append(vol * env * s)
     return samples
 
 
-def _blip(freq, dur, vol=0.45):
-    """短促音。"""
-    n = int(_RATE * dur)
-    return [
-        vol * (math.sin(math.pi * i / n) ** 2) * math.sin(2 * math.pi * freq * i / _RATE)
-        for i in range(n)
-    ]
+def _echo(samples, delay=0.18, feedback=0.35, repeats=6):
+    """反馈延迟：模拟广阔空间回响。"""
+    pad = int(_RATE * delay)
+    out = samples[:] + [0.0] * (pad * repeats + int(_RATE * 0.15))
+    level = feedback
+    for _ in range(1, repeats + 1):
+        for i in range(len(samples)):
+            out[i + pad] += samples[i] * level
+        level *= feedback
+    peak = max(1e-6, max(abs(s) for s in out))
+    scale = min(1.0, 0.95 / peak)
+    return [s * scale for s in out]
 
 
 def _mix(base, extra, offset):
@@ -46,10 +70,28 @@ def _mix(base, extra, offset):
 
 
 def _build():
-    wake = _mix(_sweep(300, 1400, 0.9, 0.5), _sweep(300, 1400, 0.9, 0.25), 0.12)
-    listen = _mix(_blip(880, 0.12, 0.4), _blip(1320, 0.16, 0.4), 0.09)
-    speak = _sweep(1000, 280, 0.7, 0.4)
-    confirm = _mix(_blip(523, 0.12, 0.4), _blip(784, 0.22, 0.4), 0.06)
+    # 唤醒：低频铺垫 + 上扬滑音（约 2.3 秒），带回声
+    wake = _mix(
+        _sweep(250, 1500, 1.6, 0.45),
+        _sweep(90, 320, 1.6, 0.30, harmonics=0.6),
+        0.0,
+    )
+    wake = _echo(wake, 0.22, 0.30, 5)
+
+    # 聆听：三连升调（660→880→1320），约 1.1 秒
+    listen = _mix(_tone(660, 0.16, 0.35), _tone(880, 0.16, 0.35), 0.13)
+    listen = _mix(listen, _tone(1320, 0.22, 0.35), 0.26)
+    listen = _echo(listen, 0.12, 0.25, 4)
+
+    # 说话：大幅下滑音（约 1.9 秒），空间感
+    speak = _sweep(1500, 220, 1.3, 0.40)
+    speak = _echo(speak, 0.20, 0.35, 5)
+
+    # 确认：C 大调和弦长音（523/659/784），约 1.6 秒
+    confirm = _mix(_tone(523, 0.6, 0.30), _tone(659, 0.6, 0.28), 0.0)
+    confirm = _mix(confirm, _tone(784, 0.7, 0.26), 0.02)
+    confirm = _echo(confirm, 0.25, 0.30, 4)
+
     return {
         "wake": wake,
         "listen": listen,
@@ -71,7 +113,7 @@ def _write_wav(path, samples):
 
 def ensure():
     """生成缺失的音效文件（源版本变化时自动重建）。"""
-    marker = os.path.join(_SFX_DIR, ".v2")
+    marker = os.path.join(_SFX_DIR, ".v3")
     if os.path.exists(marker):
         return
     for name, samples in _build().items():
