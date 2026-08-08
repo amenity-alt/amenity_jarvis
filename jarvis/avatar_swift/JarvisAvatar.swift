@@ -311,227 +311,337 @@ final class AvatarView: NSView {
     }
 }
 
-// ---------- 全息信息面板 ----------
+// ---------- 全息信息面板（模块化卡片 + 环状图表） ----------
+
+let PALETTE: [NSColor] = [
+    NSColor(calibratedRed: 0.30, green: 0.85, blue: 1.00, alpha: 1),   // 青
+    NSColor(calibratedRed: 0.65, green: 0.45, blue: 1.00, alpha: 1),   // 紫
+    NSColor(calibratedRed: 0.35, green: 0.92, blue: 0.55, alpha: 1),   // 绿
+    NSColor(calibratedRed: 1.00, green: 0.66, blue: 0.20, alpha: 1),   // 橙
+    NSColor(calibratedRed: 1.00, green: 0.38, blue: 0.72, alpha: 1),   // 粉
+    NSColor(calibratedRed: 1.00, green: 0.35, blue: 0.42, alpha: 1),   // 红
+]
+
+enum PanelModule {
+    case keys(title: String, rows: [(String, String)], color: NSColor)
+    case donuts(title: String, items: [(String, String, NSColor)])
+    case gauges(title: String, items: [(String, String, NSColor)])
+    case sparks(title: String, items: [(String, String, NSColor)])
+    case convo(title: String, color: NSColor)
+    case log(title: String, color: NSColor)
+}
+
 final class PanelView: NSView {
     var title = "JARVIS // 状态"
-    var keys: [(String, String)] = []
-    var gauges: [(String, String)] = []
-    var sparks: [(String, String)] = []
+    var modules: [PanelModule] = []
     var info: [String: String] = [:]
     var log: [String] = []
     var convo: [String] = []
 
     override var isOpaque: Bool { false }
 
-    private var labelAttrs: [NSAttributedString.Key: Any] {
-        [
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor(calibratedRed: 0.35, green: 0.75, blue: 0.95, alpha: 0.9),
-        ]
+    private let headH: CGFloat = 20
+    private let cardPad: CGFloat = 12
+    private let cardGap: CGFloat = 10
+    private let outerTitleH: CGFloat = 46
+
+    private func moduleHeight(_ m: PanelModule) -> CGFloat {
+        let pad = cardPad * 2
+        switch m {
+        case .keys(_, let rows, _):
+            return headH + CGFloat(rows.count) * 23 + pad
+        case .donuts(_, let items):
+            let rows = Int(ceil(Double(items.count) / 2.0))
+            return headH + CGFloat(rows) * 88 + CGFloat(max(0, rows - 1)) * 10 + pad
+        case .gauges(_, let items):
+            return headH + CGFloat(items.count) * 24 + pad
+        case .sparks(_, let items):
+            return headH + CGFloat(items.count) * 72 + pad
+        case .convo:
+            return headH + CGFloat(min(max(convo.count, 1), 6)) * 19 + pad
+        case .log:
+            return headH + CGFloat(min(max(log.count, 1), 10)) * 18 + pad
+        }
     }
-    private var valueAttrs: [NSAttributedString.Key: Any] {
-        [
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor(calibratedRed: 0.7, green: 0.95, blue: 1.0, alpha: 1),
-        ]
+
+    private func attrs(_ color: NSColor, _ size: CGFloat, _ weight: NSFont.Weight = .regular) -> [NSAttributedString.Key: Any] {
+        [.font: NSFont.monospacedSystemFont(ofSize: size, weight: weight),
+         .foregroundColor: color]
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let bg = NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14)
-        NSColor(calibratedWhite: 0.02, alpha: 0.60).setFill()
-        bg.fill()
-        NSColor(calibratedRed: 0.25, green: 0.8, blue: 1.0, alpha: 0.35).setStroke()
-        bg.lineWidth = 1
-        bg.stroke()
+        drawOuterTitle()
+        let contentTop = bounds.height - outerTitleH - 6
+        let totalH = modules.reduce(CGFloat(0)) { $0 + moduleHeight($1) + cardGap } - cardGap
+        let scale = min(1.0, contentTop / max(totalH, 1))
+        let ctx = NSGraphicsContext.current!.cgContext
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: contentTop - totalH * scale)
+        ctx.scaleBy(x: scale, y: scale)
 
-        let titleFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-        let titleAttrs: [NSAttributedString.Key: Any] = [
-            .font: titleFont,
-            .foregroundColor: NSColor(calibratedRed: 0.5, green: 0.9, blue: 1.0, alpha: 0.9),
-        ]
-        let titleY = bounds.height - 34
-        (title as NSString).draw(at: NSPoint(x: 16, y: titleY), withAttributes: titleAttrs)
+        var y = totalH
+        for m in modules {
+            let h = moduleHeight(m)
+            drawCard(m, top: y, height: h)
+            y -= h + cardGap
+        }
+        ctx.restoreGState()
+    }
 
+    private func drawOuterTitle() {
+        let top = bounds.height - outerTitleH + 18
+        let attrs = attrs(NSColor(calibratedRed: 0.55, green: 0.92, blue: 1.0, alpha: 0.95), 13, .bold)
+        (title as NSString).draw(at: NSPoint(x: 16, y: top), withAttributes: attrs)
         let sep = NSBezierPath()
-        sep.move(to: NSPoint(x: 14, y: titleY - 10))
-        sep.line(to: NSPoint(x: bounds.width - 14, y: titleY - 10))
-        NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.25).setStroke()
+        sep.move(to: NSPoint(x: 14, y: top - 20))
+        sep.line(to: NSPoint(x: bounds.width - 14, y: top - 20))
+        NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.3).setStroke()
+        sep.lineWidth = 1
+        sep.stroke()
+    }
+
+    private func moduleTitle(_ m: PanelModule) -> String {
+        switch m {
+        case .keys(let t, _, _): return t
+        case .donuts(let t, _): return t
+        case .gauges(let t, _): return t
+        case .sparks(let t, _): return t
+        case .convo(let t, _): return t
+        case .log(let t, _): return t
+        }
+    }
+
+    private func moduleAccent(_ m: PanelModule) -> NSColor {
+        switch m {
+        case .keys(_, _, let c): return c
+        case .donuts(_, let items): return items.first.map { $0.2 } ?? PALETTE[0]
+        case .gauges(_, let items): return items.first.map { $0.2 } ?? PALETTE[0]
+        case .sparks(_, let items): return items.first.map { $0.2 } ?? PALETTE[0]
+        case .convo(_, let c): return c
+        case .log(_, let c): return c
+        }
+    }
+
+    private func drawCard(_ m: PanelModule, top: CGFloat, height: CGFloat) {
+        let rect = NSRect(x: 3, y: top - height + 4, width: bounds.width - 6, height: height - 4)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 12, yRadius: 12)
+        NSColor(calibratedWhite: 0.03, alpha: 0.60).setFill()
+        path.fill()
+        let accent = moduleAccent(m)
+        for (w, a) in [(4.0, 0.12), (1.0, 0.6)] {
+            accent.withAlphaComponent(a).setStroke()
+            path.lineWidth = w
+            path.stroke()
+        }
+
+        let titleY = rect.maxY - headH - 4
+        let dot = NSBezierPath(ovalIn: NSRect(x: rect.minX + 10, y: titleY + 5, width: 6, height: 6))
+        accent.setFill()
+        dot.fill()
+        let titleColor = accent.blended(withFraction: 0.55, of: .white) ?? accent
+        (moduleTitle(m) as NSString).draw(at: NSPoint(x: rect.minX + 22, y: titleY + 2),
+                                          withAttributes: attrs(titleColor, 11.5, .bold))
+        let sep = NSBezierPath()
+        sep.move(to: NSPoint(x: rect.minX + 10, y: titleY - 5))
+        sep.line(to: NSPoint(x: rect.maxX - 10, y: titleY - 5))
+        accent.withAlphaComponent(0.28).setStroke()
         sep.lineWidth = 0.5
         sep.stroke()
 
-        let rowH: CGFloat = 27
-        let gaugeH: CGFloat = 26
-        let sparkH: CGFloat = 78
-        let sectionH: CGFloat = 24
-        let lineH: CGFloat = 19
-        let convoH: CGFloat = 20
-
-        var totalH: CGFloat = CGFloat(keys.count) * rowH
-        if !convo.isEmpty { totalH += 6 + sectionH + CGFloat(convo.count) * convoH }
-        if !gauges.isEmpty { totalH += 6 + sectionH + CGFloat(gauges.count) * gaugeH }
-        if !sparks.isEmpty { totalH += 6 + sectionH + CGFloat(sparks.count) * sparkH }
-        if !log.isEmpty { totalH += 6 + sectionH + CGFloat(log.count) * lineH + 8 }
-
-        var y = bounds.height - max(64, (bounds.height - totalH) / 2)
-
-        // 数据行
-        for (label, key) in keys {
-            let value = truncate(info[key] ?? "—", 26)
-            (label as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: labelAttrs)
-            (value as NSString).draw(at: NSPoint(x: 76, y: y), withAttributes: valueAttrs)
-            y -= rowH
-        }
-
-        // 实时对话
-        if !convo.isEmpty {
-            y -= 6
-            drawSection("—— 实时对话 ——", at: y)
-            y -= sectionH
-            for line in convo {
-                let isJarvis = line.hasPrefix("Jarvis:")
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-                    .foregroundColor: isJarvis
-                        ? NSColor(calibratedRed: 0.65, green: 0.95, blue: 1.0, alpha: 0.95)
-                        : NSColor(calibratedRed: 0.5, green: 0.8, blue: 0.95, alpha: 0.8),
-                ]
-                (truncate(line, 40) as NSString).draw(at: NSPoint(x: 18, y: y), withAttributes: attrs)
-                y -= convoH
-            }
-        }
-
-        // 仪表条
-        if !gauges.isEmpty {
-            y -= 6
-            drawSection("—— 仪表 ——", at: y)
-            y -= sectionH
-            for (label, key) in gauges {
-                drawGauge(label: label, pct: info[key] ?? "0", at: y)
-                y -= gaugeH
-            }
-        }
-
-        // 趋势曲线
-        if !sparks.isEmpty {
-            y -= 6
-            drawSection("—— 趋势 ——", at: y)
-            y -= sectionH
-            for (label, key) in sparks {
-                drawSpark(label: label, raw: info[key] ?? "", at: y)
-                y -= sparkH
-            }
-        }
-
-        // 活动日志
-        if !log.isEmpty {
-            y -= 8
-            drawSection("—— 活动日志 ——", at: y)
-            y -= sectionH
-            let logAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: NSColor(calibratedRed: 0.55, green: 0.88, blue: 1.0, alpha: 0.85),
-            ]
-            for line in log {
-                (truncate(line, 38) as NSString).draw(at: NSPoint(x: 18, y: y), withAttributes: logAttrs)
-                y -= lineH
-            }
+        switch m {
+        case .keys(_, let rows, let color):
+            drawKeys(rows, color: color, in: rect, below: titleY)
+        case .donuts(_, let items):
+            drawDonuts(items, in: rect, below: titleY)
+        case .gauges(_, let items):
+            drawGauges(items, in: rect, below: titleY)
+        case .sparks(_, let items):
+            drawSparks(items, in: rect, below: titleY)
+        case .convo:
+            drawConvo(in: rect, below: titleY)
+        case .log:
+            drawLog(in: rect, below: titleY)
         }
     }
 
-    private func drawSection(_ label: String, at y: CGFloat) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor(calibratedRed: 0.4, green: 0.8, blue: 1.0, alpha: 0.7),
-        ]
-        (label as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: attrs)
+    private func drawKeys(_ rows: [(String, String)], color: NSColor, in rect: NSRect, below titleY: CGFloat) {
+        let labelColor = color.blended(withFraction: 0.35, of: .white) ?? color
+        let valueColor = NSColor(calibratedRed: 0.82, green: 0.97, blue: 1.0, alpha: 1)
+        var y = titleY - 14
+        for (label, key) in rows {
+            (label as NSString).draw(at: NSPoint(x: rect.minX + 16, y: y), withAttributes: attrs(labelColor, 12))
+            (truncate(info[key] ?? "—", 24) as NSString).draw(at: NSPoint(x: rect.minX + 92, y: y), withAttributes: attrs(valueColor, 12))
+            y -= 23
+        }
     }
 
-    private func drawGauge(label: String, pct raw: String, at y: CGFloat) {
-        let pct = min(100, max(0, CGFloat(Double(raw) ?? 0)))
-        let barH: CGFloat = 12
-        let barX: CGFloat = 88
-        let barW = bounds.width - 88 - 60
-        let barY = y + 1
-        (label as NSString).draw(at: NSPoint(x: 16, y: y + 1), withAttributes: labelAttrs)
+    private func drawDonuts(_ items: [(String, String, NSColor)], in rect: NSRect, below titleY: CGFloat) {
+        let d: CGFloat = 74
+        let gap: CGFloat = 16
+        let perRow = 2
+        let totalW = CGFloat(perRow) * d + CGFloat(perRow - 1) * gap
+        for (i, item) in items.enumerated() {
+            let col = i % perRow
+            let row = i / perRow
+            let cx = rect.midX - totalW / 2 + CGFloat(col) * (d + gap) + d / 2
+            let cy = titleY - 22 - CGFloat(row) * (d + 16) - d / 2
+            drawDonut(item.0, key: item.1, color: item.2, cx: cx, cy: cy, d: d)
+        }
+    }
 
-        let bg = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: barW, height: barH),
-                              xRadius: 6, yRadius: 6)
+    private func drawDonut(_ label: String, key: String, color: NSColor, cx: CGFloat, cy: CGFloat, d: CGFloat) {
+        let pct = min(100, max(0, CGFloat(Double(info[key] ?? "0") ?? 0))) / 100
+        let r = d / 2 - 8
+        let lineW: CGFloat = 10
+        let center = NSPoint(x: cx, y: cy)
+
+        let bgRing = NSBezierPath(ovalIn: NSRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
+        NSColor(calibratedWhite: 0.13, alpha: 0.5).setStroke()
+        bgRing.lineWidth = lineW
+        bgRing.stroke()
+
+        let glow = NSBezierPath()
+        glow.appendArc(withCenter: center, radius: r, startAngle: -90, endAngle: -90 + 360 * pct, clockwise: false)
+        color.withAlphaComponent(0.22).setStroke()
+        glow.lineWidth = lineW + 7
+        glow.lineCapStyle = .round
+        glow.stroke()
+
+        let arc = NSBezierPath()
+        arc.appendArc(withCenter: center, radius: r, startAngle: -90, endAngle: -90 + 360 * pct, clockwise: false)
+        color.setStroke()
+        arc.lineWidth = lineW
+        arc.lineCapStyle = .round
+        arc.stroke()
+
+        let pctText = String(format: "%.0f%%", pct * 100) as NSString
+        let pctColor = color.blended(withFraction: 0.5, of: .white) ?? color
+        let pctAttrs = attrs(pctColor, 14, .bold)
+        let pctSize = pctText.size(withAttributes: pctAttrs)
+        pctText.draw(at: NSPoint(x: cx - pctSize.width / 2, y: cy - pctSize.height / 2), withAttributes: pctAttrs)
+
+        let nameAttrs = attrs(NSColor(calibratedRed: 0.6, green: 0.9, blue: 1.0, alpha: 0.9), 10.5)
+        let nameSize = (label as NSString).size(withAttributes: nameAttrs)
+        (label as NSString).draw(at: NSPoint(x: cx - nameSize.width / 2, y: cy - d / 2 - 8), withAttributes: nameAttrs)
+    }
+
+    private func drawGauges(_ items: [(String, String, NSColor)], in rect: NSRect, below titleY: CGFloat) {
+        var y = titleY - 14
+        for (label, key, color) in items {
+            drawGauge(label: label, key: key, color: color, at: NSPoint(x: rect.minX + 16, y: y), maxX: rect.maxX)
+            y -= 24
+        }
+    }
+
+    private func drawGauge(label: String, key: String, color: NSColor, at origin: NSPoint, maxX: CGFloat) {
+        let pct = min(100, max(0, CGFloat(Double(info[key] ?? "0") ?? 0)))
+        let barH: CGFloat = 10
+        let barX = origin.x + 62
+        let barW = maxX - barX - 56
+        let barY = origin.y + 1
+        (label as NSString).draw(at: origin, withAttributes: attrs(NSColor(calibratedRed: 0.5, green: 0.82, blue: 0.95, alpha: 0.9), 12))
+
+        let bg = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: barW, height: barH), xRadius: 5, yRadius: 5)
         NSColor(calibratedWhite: 0.16, alpha: 0.55).setFill()
         bg.fill()
 
         if pct > 0.5 {
-            let fill = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: max(4, barW * pct / 100), height: barH),
-                                    xRadius: 6, yRadius: 6)
-            let gradient = NSGradient(colors: [
-                NSColor(calibratedRed: 0.15, green: 0.6, blue: 1.0, alpha: 0.9),
-                NSColor(calibratedRed: 0.45, green: 0.9, blue: 1.0, alpha: 0.95),
-            ])!
+            let fill = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: max(4, barW * pct / 100), height: barH), xRadius: 5, yRadius: 5)
+            let fillColor = color.blended(withFraction: 0.5, of: .white) ?? color
+            let gradient = NSGradient(colors: [color.withAlphaComponent(0.85), fillColor.withAlphaComponent(0.95)])!
             gradient.draw(in: fill, angle: 0)
         }
-        (String(format: "%.0f%%", pct) as NSString).draw(at: NSPoint(x: barX + barW + 8, y: y + 1), withAttributes: valueAttrs)
+        let pctText = String(format: "%.0f%%", pct) as NSString
+        (pctText as NSString).draw(at: NSPoint(x: barX + barW + 6, y: origin.y + 1),
+                                   withAttributes: attrs(NSColor(calibratedRed: 0.82, green: 0.97, blue: 1.0, alpha: 1), 12))
     }
 
-    private func numbers(from raw: String) -> [CGFloat] {
-        raw.split(separator: ",").compactMap { CGFloat(Double($0.trimmingCharacters(in: .whitespaces)) ?? 0) }
+    private func drawSparks(_ items: [(String, String, NSColor)], in rect: NSRect, below titleY: CGFloat) {
+        var y = titleY - 16
+        for (label, key, color) in items {
+            drawSpark(label: label, key: key, color: color, in: rect, at: y)
+            y -= 72
+        }
     }
 
-    private func drawSpark(label: String, raw: String, at y: CGFloat) {
-        let values = numbers(from: raw)
-        let chartH: CGFloat = 52
+    private func drawSpark(label: String, key: String, color: NSColor, in rect: NSRect, at y: CGFloat) {
+        let values = numbers(from: info[key] ?? "")
+        let chartH: CGFloat = 46
         let chartY = y - chartH
-        (label as NSString).draw(at: NSPoint(x: 16, y: y - 14), withAttributes: labelAttrs)
+        (label as NSString).draw(at: NSPoint(x: rect.minX + 16, y: y - 12),
+                                 withAttributes: attrs(NSColor(calibratedRed: 0.5, green: 0.82, blue: 0.95, alpha: 0.85), 11))
         guard values.count > 1 else { return }
 
-        let chartX: CGFloat = 18
-        let chartW = bounds.width - 36
+        let chartX = rect.minX + 14
+        let chartW = rect.width - 28
         let lo = values.min() ?? 0
         let hi = max(values.max() ?? 1, lo + 0.001)
         let span = hi - lo
         let pts: [NSPoint] = values.enumerated().map { i, v in
-            let x = chartX + CGFloat(i) / CGFloat(values.count - 1) * chartW
-            let yy = chartY + (v - lo) / span * (chartH - 8) + 4
-            return NSPoint(x: x, y: yy)
+            NSPoint(x: chartX + CGFloat(i) / CGFloat(values.count - 1) * chartW,
+                    y: chartY + (v - lo) / span * (chartH - 8) + 4)
         }
 
-        // 网格线
         for g in 0...2 {
             let gy = chartY + CGFloat(g) / 2 * (chartH - 8) + 4
             let grid = NSBezierPath()
             grid.move(to: NSPoint(x: chartX, y: gy))
             grid.line(to: NSPoint(x: chartX + chartW, y: gy))
-            NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.12).setStroke()
+            color.withAlphaComponent(0.10).setStroke()
             grid.lineWidth = 0.5
             grid.stroke()
         }
 
-        // 填充区域
         let area = NSBezierPath()
         area.move(to: pts[0])
         for p in pts.dropFirst() { area.line(to: p) }
         area.line(to: NSPoint(x: pts.last!.x, y: chartY))
         area.line(to: NSPoint(x: pts[0].x, y: chartY))
         area.close()
-        NSColor(calibratedRed: 0.2, green: 0.7, blue: 1.0, alpha: 0.10).setFill()
+        color.withAlphaComponent(0.10).setFill()
         area.fill()
 
-        // 光晕 + 主线
         let line = NSBezierPath()
         line.move(to: pts[0])
         for p in pts.dropFirst() { line.line(to: p) }
-        NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.25).setStroke()
+        color.withAlphaComponent(0.30).setStroke()
         line.lineWidth = 4
         line.stroke()
-        NSColor(calibratedRed: 0.55, green: 0.92, blue: 1.0, alpha: 0.95).setStroke()
+        let lineColor = color.blended(withFraction: 0.55, of: .white) ?? color
+        lineColor.setStroke()
         line.lineWidth = 1.5
         line.stroke()
 
-        // 最新点高亮
         if let last = pts.last {
             let dot = NSBezierPath(ovalIn: NSRect(x: last.x - 2.5, y: last.y - 2.5, width: 5, height: 5))
-            NSColor(calibratedRed: 0.85, green: 0.99, blue: 1.0, alpha: 1).setFill()
+            NSColor.white.withAlphaComponent(0.9).setFill()
             dot.fill()
         }
+    }
+
+    private func drawConvo(in rect: NSRect, below titleY: CGFloat) {
+        var y = titleY - 16
+        for line in Array(convo.suffix(6)) {
+            let isJarvis = line.hasPrefix("Jarvis:")
+            let color = isJarvis
+                ? NSColor(calibratedRed: 0.65, green: 0.95, blue: 1.0, alpha: 0.95)
+                : NSColor(calibratedRed: 0.55, green: 0.85, blue: 0.95, alpha: 0.8)
+            (truncate(line, 38) as NSString).draw(at: NSPoint(x: rect.minX + 16, y: y), withAttributes: attrs(color, 11))
+            y -= 19
+        }
+    }
+
+    private func drawLog(in rect: NSRect, below titleY: CGFloat) {
+        var y = titleY - 16
+        for line in Array(log.suffix(10)) {
+            (truncate(line, 38) as NSString).draw(at: NSPoint(x: rect.minX + 16, y: y),
+                                                  withAttributes: attrs(NSColor(calibratedRed: 0.55, green: 0.88, blue: 1.0, alpha: 0.85), 11))
+            y -= 18
+        }
+    }
+
+    private func numbers(from raw: String) -> [CGFloat] {
+        raw.split(separator: ",").compactMap { CGFloat(Double($0.trimmingCharacters(in: .whitespaces)) ?? 0) }
     }
 
     private func truncate(_ text: String, _ limit: Int) -> String {
@@ -541,6 +651,7 @@ final class PanelView: NSView {
         return String(text.prefix(limit)) + "…"
     }
 }
+
 
 // ---------- 主入口 ----------
 let app = NSApplication.shared
@@ -576,13 +687,24 @@ func panelRect(width: CGFloat, left: Bool) -> NSRect {
 let panelW: CGFloat = 340
 let leftPanel = PanelView(frame: NSRect(x: 0, y: 0, width: panelW, height: 700))
 leftPanel.title = "JARVIS // 环境信息"
-leftPanel.keys = [
-    ("时间", "time"), ("日期", "date"), ("天气", "weather"), ("电池", "battery"),
-    ("负载", "load"), ("内存", "mem"), ("磁盘", "disk"), ("网络", "net"),
-    ("IP", "ip"), ("运行", "uptime"), ("进程", "processes"), ("系统", "kernel"),
+leftPanel.modules = [
+    .keys(title: "基础信息", rows: [
+        ("时间", "time"), ("日期", "date"), ("天气", "weather"), ("负载", "load"), ("网络", "net"),
+    ], color: PALETTE[0]),
+    .donuts(title: "资源占用", items: [
+        ("CPU", "load_pct", PALETTE[1]),
+        ("内存", "mem_pct", PALETTE[0]),
+        ("磁盘", "disk_pct", PALETTE[3]),
+        ("电池", "batt_pct", PALETTE[2]),
+    ]),
+    .sparks(title: "负载与网络趋势", items: [
+        ("负载", "load_hist", PALETTE[3]),
+        ("网络延迟", "net_hist", PALETTE[1]),
+    ]),
+    .keys(title: "系统概况", rows: [
+        ("IP", "ip"), ("运行", "uptime"), ("进程", "processes"), ("内核", "kernel"),
+    ], color: PALETTE[2]),
 ]
-leftPanel.gauges = [("电池", "batt_pct"), ("内存", "mem_pct"), ("磁盘", "disk_pct")]
-leftPanel.sparks = [("负载趋势", "load_hist"), ("网络延迟", "net_hist")]
 let leftWindow = NSWindow(contentRect: panelRect(width: panelW, left: true),
                           styleMask: [.borderless], backing: .buffered, defer: false)
 leftWindow.isOpaque = false
@@ -597,11 +719,17 @@ leftWindow.orderFrontRegardless()
 // 右侧系统状态面板（底部到顶部）
 let rightPanel = PanelView(frame: NSRect(x: 0, y: 0, width: panelW, height: 700))
 rightPanel.title = "JARVIS // 系统状态"
-rightPanel.keys = [
-    ("状态", "status"), ("模型", "model"), ("延迟", "latency"), ("会话", "session"),
-    ("进程", "processes"),
+rightPanel.modules = [
+    .keys(title: "核心状态", rows: [
+        ("状态", "status"), ("模型", "model"), ("延迟", "latency"), ("会话", "session"),
+    ], color: PALETTE[2]),
+    .convo(title: "实时对话", color: PALETTE[0]),
+    .sparks(title: "接口与电量趋势", items: [
+        ("接口延迟", "latency_hist", PALETTE[4]),
+        ("电量趋势", "batt_hist", PALETTE[1]),
+    ]),
+    .log(title: "活动日志", color: PALETTE[5]),
 ]
-rightPanel.sparks = [("接口延迟", "latency_hist"), ("电量趋势", "batt_hist")]
 let rightWindow = NSWindow(contentRect: panelRect(width: panelW, left: false),
                            styleMask: [.borderless], backing: .buffered, defer: false)
 rightWindow.isOpaque = false

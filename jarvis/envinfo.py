@@ -1,6 +1,7 @@
 """Jarvis 环境信息采集：时间、天气、电量、负载、内存、网络（用于左下角面板）。"""
 
 import datetime
+import os
 import re
 import socket
 import subprocess
@@ -161,6 +162,8 @@ def collect():
     disk_pct = float(disk_m.group(1)) / float(disk_m.group(2)) * 100 if disk_m else 0.0
     batt_pct = first_num(r"电量 ([\d.]+)%", batt_txt)
     net_ms = first_num(r"在线 ([\d.]+)ms", net_txt)
+    cpu_count = max(1, os.cpu_count() or 4)
+    load_pct = min(100.0, load1 / cpu_count * 100.0)
 
     _LOAD_HIST.append(load1)
     _MEM_HIST.append(mem_pct)
@@ -186,6 +189,7 @@ def collect():
         "batt_pct": "%.0f" % batt_pct,
         "mem_pct": "%.0f" % mem_pct,
         "disk_pct": "%.0f" % disk_pct,
+        "load_pct": "%.0f" % load_pct,
         "load_hist": hist(_LOAD_HIST),
         "mem_hist": hist(_MEM_HIST),
         "batt_hist": hist(_BATT_HIST),
