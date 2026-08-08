@@ -4,7 +4,7 @@ import threading
 import time
 
 from . import avatar, envinfo, sfx, skills, tools, voice
-from .llm import LLMError, chat
+from .llm import LLMError, chat, chat_stream
 
 SYSTEM_PROMPT = (
     "你是 Jarvis，一个简洁、友好、可靠的中文个人助理。"
@@ -21,7 +21,8 @@ def run(config, voice_mode=False, command=None, wake=False):
     av = avatar.Avatar() if wake else None
     panel_started = [False]
     panel_stop = threading.Event()
-    state = {"status": "在线", "latency": 0, "session": 0, "log": []}
+    state = {"status": "在线", "latency": 0, "session": 0, "log": [], "convo": []}
+    last_env = {}
     history = []
     print("🤖 Jarvis 已启动。输入「帮助」查看本地技能，「退出」结束对话。")
     if voice_mode:
@@ -41,6 +42,37 @@ def run(config, voice_mode=False, command=None, wake=False):
         if av:
             av.command("idle")
         state["status"] = "待机" if wake else "在线"
+
+    def add_convo(text, who):
+        state["convo"].append("%s: %s" % (who, text))
+        state["convo"] = state["convo"][-6:]
+
+    def set_reply(partial):
+        """实时更新「Jarvis 正在说的」那一行。"""
+        if state["convo"] and state["convo"][-1].startswith("Jarvis: "):
+            state["convo"][-1] = "Jarvis: " + partial
+        else:
+            state["convo"].append("Jarvis: " + partial)
+        state["convo"] = state["convo"][-6:]
+
+    def push_panel():
+        if not av:
+            return
+        try:
+            data = dict(last_env)
+            data.update(
+                {
+                    "status": state["status"],
+                    "model": config["model"],
+                    "latency": "%d ms" % state["latency"] if state["latency"] else "-",
+                    "session": "第 %d 轮" % state["session"],
+                    "log": "\n".join(state["log"]),
+                    "convo": "\n".join(state["convo"]),
+                }
+            )
+            av.set_info(data)
+        except Exception:
+            pass
 
     def get_input():
         if voice_mode:
@@ -66,17 +98,9 @@ def run(config, voice_mode=False, command=None, wake=False):
         def loop():
             while not panel_stop.is_set():
                 try:
-                    data = envinfo.collect()
-                    data.update(
-                        {
-                            "status": state["status"],
-                            "model": config["model"],
-                            "latency": "%d ms" % state["latency"] if state["latency"] else "-",
-                            "session": "第 %d 轮" % state["session"],
-                            "log": "\n".join(state["log"]),
-                        }
-                    )
-                    av.set_info(data)
+                    last_env.clear()
+                    last_env.update(envinfo.collect())
+                    push_panel()
                 except Exception:
                     pass
                 panel_stop.wait(5)
@@ -86,14 +110,20 @@ def run(config, voice_mode=False, command=None, wake=False):
     def handle(user_input):
         state["session"] += 1
         state["log"].append("» " + user_input.strip()[:30])
+        add_convo(user_input, "你")
+        push_panel()
         kind, result = skills.try_skill(user_input)
         if kind == "exit":
+            add_convo("再见，有需要随时叫我。", "Jarvis")
             respond("再见，有需要随时叫我。")
+            push_panel()
             return False
         if kind == "ok":
+            add_convo(result, "Jarvis")
             respond(result)
             state["log"].append("« " + result[:36])
             state["log"] = state["log"][-10:]
+            push_panel()
             return True
         messages = _build_messages(history) + [{"role": "user", "content": user_input}]
         try:
@@ -111,19 +141,38 @@ def run(config, voice_mode=False, command=None, wake=False):
     def _chat_with_tools(config, messages):
         """调用大模型；模型请求工具时执行并把结果回传，最多 4 轮。"""
         state["status"] = "思考中"
+        last_push = [0.0]
+
+        def live(partial):
+            now = time.time()
+            if now - last_push[0] < 0.25:
+                return
+            last_push[0] = now
+            set_reply(partial)
+            push_panel()
+
         for _ in range(4):
             start = time.time()
-            message = chat(
+            parts = []
+            message = None
+            for delta, msg in chat_stream(
                 config["api_key"],
                 config["base_url"],
                 config["model"],
                 messages,
                 tools=tools.TOOLS,
-            )
+            ):
+                if delta:
+                    parts.append(delta)
+                    live("".join(parts))
+                if msg is not None:
+                    message = msg
             state["latency"] = int((time.time() - start) * 1000)
             envinfo.LATENCY_HIST.append(state["latency"])
+            text = "".join(parts).strip() or (message.get("content") or "").strip()
             if not message.get("tool_calls"):
-                return (message.get("content") or "").strip()
+                set_reply(text)
+                return text
             messages.append(
                 {
                     "role": "assistant",
@@ -137,6 +186,7 @@ def run(config, voice_mode=False, command=None, wake=False):
                 messages.append(
                     {"role": "tool", "tool_call_id": call.get("id", ""), "content": result}
                 )
+            set_reply("（正在联网查询…）")
         raise LLMError("工具调用次数过多，已停止。")
 
     def wait_wake():
@@ -149,6 +199,8 @@ def run(config, voice_mode=False, command=None, wake=False):
                     start_panel()
                 sfx.play("wake", wait=True)
                 respond("在", sfx_mode=None)
+                add_convo("在，有什么吩咐？", "Jarvis")
+                push_panel()
                 return True
             print("🔊 待机中：说「Hey Jarvis」唤醒我。", flush=True)
 

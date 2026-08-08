@@ -319,6 +319,7 @@ final class PanelView: NSView {
     var sparks: [(String, String)] = []
     var info: [String: String] = [:]
     var log: [String] = []
+    var convo: [String] = []
 
     override var isOpaque: Bool { false }
 
@@ -364,8 +365,10 @@ final class PanelView: NSView {
         let sparkH: CGFloat = 78
         let sectionH: CGFloat = 24
         let lineH: CGFloat = 19
+        let convoH: CGFloat = 20
 
         var totalH: CGFloat = CGFloat(keys.count) * rowH
+        if !convo.isEmpty { totalH += 6 + sectionH + CGFloat(convo.count) * convoH }
         if !gauges.isEmpty { totalH += 6 + sectionH + CGFloat(gauges.count) * gaugeH }
         if !sparks.isEmpty { totalH += 6 + sectionH + CGFloat(sparks.count) * sparkH }
         if !log.isEmpty { totalH += 6 + sectionH + CGFloat(log.count) * lineH + 8 }
@@ -378,6 +381,24 @@ final class PanelView: NSView {
             (label as NSString).draw(at: NSPoint(x: 16, y: y), withAttributes: labelAttrs)
             (value as NSString).draw(at: NSPoint(x: 76, y: y), withAttributes: valueAttrs)
             y -= rowH
+        }
+
+        // 实时对话
+        if !convo.isEmpty {
+            y -= 6
+            drawSection("—— 实时对话 ——", at: y)
+            y -= sectionH
+            for line in convo {
+                let isJarvis = line.hasPrefix("Jarvis:")
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                    .foregroundColor: isJarvis
+                        ? NSColor(calibratedRed: 0.65, green: 0.95, blue: 1.0, alpha: 0.95)
+                        : NSColor(calibratedRed: 0.5, green: 0.8, blue: 0.95, alpha: 0.8),
+                ]
+                (truncate(line, 40) as NSString).draw(at: NSPoint(x: 18, y: y), withAttributes: attrs)
+                y -= convoH
+            }
         }
 
         // 仪表条
@@ -633,6 +654,7 @@ FileHandle.standardInput.readabilityHandler = { handle in
                         leftPanel.info = obj
                         rightPanel.info = obj
                         rightPanel.log = (obj["log"] ?? "").split(separator: "\n").map(String.init)
+                        rightPanel.convo = (obj["convo"] ?? "").split(separator: "\n").map(String.init)
                     }
                 }
             }
