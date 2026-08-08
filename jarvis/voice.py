@@ -18,6 +18,9 @@ APP_ALIASES = {
     "系统设置": "System Settings",
 }
 
+# 变调量（半音）：降低让声音更低沉，模拟男声
+MALE_PITCH = -320
+
 WAKE_PHRASES = (
     "hey jarvis",
     "heyjarvis",
@@ -47,21 +50,66 @@ def _voices():
 
 
 def chinese_voice():
-    # 优先中文男声（Rocko 低沉，最适合 Jarvis），退回女声
-    for candidate in ["Rocko", "Eddy", "Reed", "Grandpa", "Tingting", "Meijia", "Sinji"]:
+    # 只用真正能合成中文的内置语音（Rocko 等 novelty 男声不可用）
+    for candidate in ["Tingting", "Meijia", "Sinji"]:
         if candidate in _voices():
             return candidate
     return None
 
 
-def speak(text, voice=None):
+def _voice_play_binary():
+    return os.path.join(os.path.expanduser("~"), ".jarvis", "jarvis_voice_play")
+
+
+def _compile_voice_play():
+    source = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "voice_play", "JarvisVoicePlay.swift"
+    )
+    binary = _voice_play_binary()
+    if os.path.exists(binary) and os.path.getmtime(binary) >= os.path.getmtime(source):
+        return binary
+    if shutil.which("swiftc") is None or not os.path.exists(source):
+        return None
+    try:
+        os.makedirs(os.path.dirname(binary), exist_ok=True)
+        cache_dir = os.path.join(os.path.dirname(binary), "clang-cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        env = dict(os.environ, CLANG_MODULE_CACHE_PATH=cache_dir)
+        tmp = binary + ".tmp"
+        result = subprocess.run(
+            ["swiftc", "-O", source, "-o", tmp],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if result.returncode != 0:
+            return None
+        os.replace(tmp, binary)
+        return binary
+    except Exception:
+        return None
+
+
+def speak(text, voice=None, male=True):
+    """朗读文本：先用 say 渲染成音频，再变调播放（更低沉）。"""
     if not available():
         return False
-    cmd = ["say"]
-    if voice:
-        cmd += ["-v", voice]
+    voice = voice or chinese_voice()
+    tmp = os.path.join(os.path.expanduser("~"), ".jarvis", "say_tmp.aiff")
     try:
-        subprocess.run(cmd + [text], check=False)
+        os.makedirs(os.path.dirname(tmp), exist_ok=True)
+        cmd = ["say"]
+        if voice:
+            cmd += ["-v", voice]
+        cmd += ["-o", tmp]
+        result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0 or not os.path.exists(tmp):
+            return False
+        helper = _compile_voice_play() if male else None
+        if helper:
+            subprocess.run([helper, tmp, str(MALE_PITCH)], timeout=60, check=False)
+        else:
+            subprocess.run(["afplay", tmp], timeout=60, check=False)
         return True
     except Exception:
         return False
