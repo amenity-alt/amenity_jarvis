@@ -27,6 +27,34 @@ def _tone(freq, dur, vol=0.5, harmonics=1.0):
     return samples
 
 
+def _organ(freq, dur, vol=0.5, harmonics=1.0):
+    """管风琴式长音：慢起音、多泛音、结尾缓慢淡出（星际穿越式）。"""
+    n = int(_RATE * dur)
+    samples = []
+    phase = 0.0
+    for i in range(n):
+        t = i / n
+        attack = min(1.0, t / 0.35) ** 2
+        release = min(1.0, (1 - t) / 0.30)
+        env = attack * release
+        s = math.sin(phase)
+        s += harmonics * 0.6 * math.sin(2 * phase)
+        s += harmonics * 0.4 * math.sin(3 * phase)
+        s += harmonics * 0.25 * math.sin(4 * phase)
+        samples.append(vol * env * s)
+        phase += 2 * math.pi * freq / _RATE
+    return samples
+
+
+def _tick(vol=0.5):
+    """时钟滴答声（星际穿越的时间主题）。"""
+    n = int(_RATE * 0.055)
+    return [
+        vol * (math.sin(math.pi * i / n) ** 4) * math.sin(2 * math.pi * 780 * i / _RATE)
+        for i in range(n)
+    ]
+
+
 def _sweep(f0, f1, dur, vol=0.5, harmonics=1.0):
     """频率滑音（带泛音），淡入淡出。"""
     n = int(_RATE * dur)
@@ -70,13 +98,17 @@ def _mix(base, extra, offset):
 
 
 def _build():
-    # 唤醒：低频铺垫 + 上扬滑音（约 2.2 秒），带回声
-    wake = _mix(
-        _sweep(250, 1500, 1.2, 0.45),
-        _sweep(90, 320, 1.2, 0.30, harmonics=0.6),
-        0.0,
-    )
-    wake = _echo(wake, 0.22, 0.28, 5)
+    # 唤醒：星际穿越风格——低频管风琴长音渐起 + 时钟滴答 + 空气感（约 4.6 秒）
+    dur = 4.0
+    low = _organ(55.0, dur, 0.42, harmonics=1.0)     # A1 根音
+    fifth = _organ(82.4, dur, 0.30, harmonics=0.8)   # E2 五度
+    octave = _organ(110.0, dur, 0.20, harmonics=0.6) # A2 八度
+    wake = _mix(_mix(low, fifth, 0.0), octave, 0.0)
+    shimmer = _organ(220.0, dur, 0.07, harmonics=0.4)
+    wake = _mix(wake, shimmer, 0.3)
+    for k in range(5):
+        wake = _mix(wake, _tick(0.22), 0.5 + 0.9 * k)
+    wake = _echo(wake, 0.35, 0.26, 3)
 
     # 聆听：三连升调（660→880→1320），约 0.8 秒
     listen = _mix(_tone(660, 0.12, 0.35), _tone(880, 0.12, 0.35), 0.10)
@@ -113,7 +145,7 @@ def _write_wav(path, samples):
 
 def ensure():
     """生成缺失的音效文件（源版本变化时自动重建）。"""
-    marker = os.path.join(_SFX_DIR, ".v4")
+    marker = os.path.join(_SFX_DIR, ".v5")
     if os.path.exists(marker):
         return
     for name, samples in _build().items():
