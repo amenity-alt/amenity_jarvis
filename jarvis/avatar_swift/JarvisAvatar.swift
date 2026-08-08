@@ -1,4 +1,4 @@
-// JarvisAvatar.swift — 钢铁侠风格 JARVIS 全息头像（光点粒子 → 人脸形态）+ 环境信息面板
+// JarvisAvatar.swift — 钢铁侠风格 JARVIS 全息头像（光点粒子 → 钢铁侠面具形态）+ 环境信息面板
 // 用法: JarvisAvatar [--mode idle|listen|speak]
 // stdin 命令: idle / listen / speak / show / hide / center / info:<json> / quit
 
@@ -19,8 +19,26 @@ final class AvatarView: NSView {
     var mode = "idle"
     private var particles: [Particle] = []
     private var progress: CGFloat = 0
-    private var showFace = false
+    private var showHelmet = false
     private var lastTime: TimeInterval = 0
+
+    // 粒子数量
+    private let OUTLINE = 120
+    private let EYES = 80
+    private let BROWS = 32
+    private let NOSE = 16
+    private let MOUTH = 32
+    private let PUPILS = 64
+    private let HALO = 48
+    private let DUST = 28
+    private var totalCount: Int { OUTLINE + EYES + BROWS + NOSE + MOUTH + PUPILS + HALO + DUST }
+
+    // 钢铁侠头盔轮廓顶点（单位坐标，x 对称）：宽颊、棱角、尖下巴
+    private let helmetVerts: [(CGFloat, CGFloat)] = [
+        (0.00, 0.48), (0.14, 0.47), (0.24, 0.44), (0.30, 0.38), (0.34, 0.28),
+        (0.38, 0.16), (0.40, 0.02), (0.36, -0.10), (0.28, -0.22), (0.18, -0.33),
+        (0.08, -0.41), (0.00, -0.44),
+    ]
 
     override var isOpaque: Bool { false }
 
@@ -29,32 +47,65 @@ final class AvatarView: NSView {
         return t * t * (3 - 2 * t)
     }
 
+    // 沿多边形周长均匀取点（单位坐标）
+    private func polygonPoints(_ verts: [(CGFloat, CGFloat)], count: Int) -> [(CGFloat, CGFloat)] {
+        var segs: [(CGFloat, CGFloat, CGFloat, CGFloat)] = []
+        var total: CGFloat = 0
+        for k in 0..<verts.count {
+            let a = verts[k]
+            let b = verts[(k + 1) % verts.count]
+            let len = hypot(b.0 - a.0, b.1 - a.1)
+            segs.append((a.0, a.1, b.0, b.1))
+            total += len
+        }
+        var out: [(CGFloat, CGFloat)] = []
+        for s in segs {
+            let len = hypot(s.2 - s.0, s.3 - s.1)
+            let n = max(1, Int(round(len / total * CGFloat(count))))
+            for j in 0..<n {
+                if out.count >= count { break }
+                let t = CGFloat(j) / CGFloat(n)
+                out.append((s.0 + (s.2 - s.0) * t, s.1 + (s.3 - s.1) * t))
+            }
+        }
+        while out.count < count {
+            out.append(out.last ?? (0, 0))
+        }
+        return out
+    }
+
     private func spawnParticles() {
         particles.removeAll()
-        let w = bounds.width
-        let h = bounds.height
+        // 粒子从整个屏幕各处飞来
+        var sx0: CGFloat = -600
+        var sy0: CGFloat = -600
+        var sx1: CGFloat = 1024
+        var sy1: CGFloat = 768
+        if let frame = window?.screen?.visibleFrame, let origin = window?.frame.origin {
+            sx0 = frame.minX - origin.x - 80
+            sy0 = frame.minY - origin.y - 80
+            sx1 = frame.maxX - origin.x + 80
+            sy1 = frame.maxY - origin.y + 80
+        }
         func randomSpawn() -> (CGFloat, CGFloat) {
-            (CGFloat.random(in: -w * 0.5 ... w * 1.5), CGFloat.random(in: -h * 0.5 ... h * 1.5))
+            (CGFloat.random(in: sx0 ... sx1), CGFloat.random(in: sy0 ... sy1))
         }
         func make(_ count: Int) -> [Particle] {
             (0..<count).map { _ in
                 let (sx, sy) = randomSpawn()
                 return Particle(x: sx, y: sy, spawnX: sx, spawnY: sy, tx: 0, ty: 0,
                                 phase: Double.random(in: 0 ... .pi * 2),
-                                size: CGFloat.random(in: 1.5 ... 3.2))
+                                size: CGFloat.random(in: 1.5 ... 3.4))
             }
         }
-        particles.append(contentsOf: make(120)) // 外环
-        particles.append(contentsOf: make(40))  // 内环
-        particles.append(contentsOf: make(24))  // 核心
-        particles.append(contentsOf: make(20))  // 漂浮尘埃
+        particles.append(contentsOf: make(totalCount))
     }
 
     private func updateParticles(now: TimeInterval, dt: CGFloat) {
         if particles.isEmpty {
             spawnParticles()
             progress = 0
-            showFace = false
+            showHelmet = false
         }
         let w = bounds.width
         let h = bounds.height
@@ -64,7 +115,7 @@ final class AvatarView: NSView {
         let rotation = CGFloat(now.truncatingRemainder(dividingBy: 6.0) / 6.0) * .pi * 2
         let pulse = CGFloat(0.85 + 0.15 * sin(now * 3.2))
         if progress >= 1 {
-            showFace = true
+            showHelmet = true
         }
 
         for (index, particle) in particles.enumerated() {
@@ -72,9 +123,9 @@ final class AvatarView: NSView {
             var ty = cy
             var driftX: CGFloat = 0
             var driftY: CGFloat = 0
-            if showFace {
-                (tx, ty, driftX, driftY) = faceTarget(index, cx: cx, cy: cy, base: base,
-                                                      now: now, rotation: rotation, phase: particle.phase)
+            if showHelmet {
+                (tx, ty, driftX, driftY) = helmetTarget(index, cx: cx, cy: cy, base: base,
+                                                        now: now, rotation: rotation, phase: particle.phase)
             } else {
                 (tx, ty, driftX, driftY) = ringTarget(index, cx: cx, cy: cy, base: base,
                                                       now: now, rotation: rotation, pulse: pulse, phase: particle.phase)
@@ -92,13 +143,13 @@ final class AvatarView: NSView {
     // 环形态（组装阶段）
     private func ringTarget(_ i: Int, cx: CGFloat, cy: CGFloat, base: CGFloat,
                             now: TimeInterval, rotation: CGFloat, pulse: CGFloat, phase: Double) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
-        let ringCount = 120
-        let innerCount = 40
-        let coreCount = 24
+        let ringEnd = 200
+        let innerEnd = 248
+        let coreEnd = 280
         var tx = cx
         var ty = cy
-        if i < ringCount {
-            let angle = CGFloat(Double(i) / Double(ringCount) * Double.pi * 2) + rotation
+        if i < ringEnd {
+            let angle = CGFloat(Double(i) / Double(ringEnd) * Double.pi * 2) + rotation
             var radius = base * 0.40
             if mode == "listen" {
                 let wave = CGFloat(0.5 + 0.5 * sin(Double(i) * 1.9 + now * 9))
@@ -108,104 +159,123 @@ final class AvatarView: NSView {
             }
             tx = cx + cos(angle) * radius
             ty = cy + sin(angle) * radius
-        } else if i < ringCount + innerCount {
-            let j = i - ringCount
-            let angle = CGFloat(Double(j) / Double(innerCount) * Double.pi * 2) - rotation * 1.4
+        } else if i < innerEnd {
+            let j = i - ringEnd
+            let angle = CGFloat(Double(j) / Double(innerEnd - ringEnd) * Double.pi * 2) - rotation * 1.4
             let radius = base * 0.24 * pulse
             tx = cx + cos(angle) * radius
             ty = cy + sin(angle) * radius
-        } else if i < ringCount + innerCount + coreCount {
-            let j = i - ringCount - innerCount
-            let angle = CGFloat(Double(j) / Double(coreCount) * Double.pi * 2) + rotation * 0.4
+        } else if i < coreEnd {
+            let j = i - innerEnd
+            let angle = CGFloat(Double(j) / Double(coreEnd - innerEnd) * Double.pi * 2) + rotation * 0.4
             let radius = base * 0.06 * pulse
             tx = cx + cos(angle) * radius
             ty = cy + sin(angle) * radius
         } else {
-            let j = i - ringCount - innerCount - coreCount
+            let j = i - coreEnd
             let speed = 0.3 + 0.1 * Double(j % 3)
-            tx = cx + CGFloat(sin(now * speed + phase)) * base * 0.52
-            ty = cy + CGFloat(cos(now * speed * 0.83 + phase * 1.3)) * base * 0.52
+            tx = cx + CGFloat(sin(now * speed + phase)) * base * 0.55
+            ty = cy + CGFloat(cos(now * speed * 0.83 + phase * 1.3)) * base * 0.55
         }
         return (tx, ty, 0, 0)
     }
 
-    // 人脸形态（组装完成后变身）
-    private func faceTarget(_ i: Int, cx: CGFloat, cy: CGFloat, base: CGFloat,
-                            now: TimeInterval, rotation: CGFloat, phase: Double) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
-        let ringCount = 120
-        let innerCount = 40
-        let coreCount = 24
-        let breathing = CGFloat(1 + 0.012 * sin(now * 1.6))
-        let eyeY = cy + base * 0.09
-        let eyeRX = base * 0.038
-        let eyeRY = base * (0.024 + 0.004 * sin(now * 1.3))
+    // 钢铁侠面具形态（组装完成后变身）
+    private func helmetTarget(_ i: Int, cx: CGFloat, cy: CGFloat, base: CGFloat,
+                              now: TimeInterval, rotation: CGFloat, phase: Double) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        let outlineEnd = OUTLINE
+        let eyesEnd = outlineEnd + EYES
+        let browsEnd = eyesEnd + BROWS
+        let noseEnd = browsEnd + NOSE
+        let mouthEnd = noseEnd + MOUTH
+        let pupilsEnd = mouthEnd + PUPILS
+        let haloEnd = pupilsEnd + HALO
+
+        let breathe = CGFloat(1 + 0.010 * sin(now * 1.6))
         var tx = cx
         var ty = cy
         var dx: CGFloat = 0
         var dy: CGFloat = 0
 
-        if i < 56 {
-            // 脸部轮廓（椭圆）
-            let a = -CGFloat.pi / 2 + CGFloat(Double(i) / 56.0 * Double.pi * 2)
-            tx = cx + cos(a) * base * 0.30 * breathing
-            ty = cy + sin(a) * base * 0.40 * breathing
-        } else if i < 84 {
-            // 眼睛轮廓（左右各 14 点）
-            let j = i - 56
-            let side: CGFloat = j < 14 ? -1 : 1
-            let k = j % 14
-            let a = CGFloat(Double(k) / 14.0 * Double.pi * 2)
-            tx = cx + side * base * 0.125 + cos(a) * eyeRX
-            ty = eyeY + sin(a) * eyeRY
-        } else if i < 104 {
-            // 眉毛（左右各 10 点，拱形）
-            let j = i - 84
-            let side: CGFloat = j < 10 ? -1 : 1
-            let k = j % 10
-            let t = CGFloat(k) / 9
-            tx = cx + side * (base * 0.185 - t * base * 0.105)
-            ty = cy + base * 0.185 + sin(t * .pi) * base * 0.04
-        } else if i < 112 {
-            // 鼻子（8 点）
-            let j = i - 104
-            let t = CGFloat(j) / 7
-            tx = cx + sin(t * .pi) * base * 0.012
-            ty = cy + base * 0.035 - t * base * 0.10
-        } else if i < 128 {
-            // 嘴巴（16 点，微笑；说话时开合）
-            let j = i - 112
-            let t = CGFloat(j) / 15
-            tx = cx - base * 0.115 + t * base * 0.23
-            ty = cy - base * 0.115 - sin(t * .pi) * base * 0.05
-            if mode == "speak" {
-                ty -= abs(sin(now * 16)) * base * 0.035
-            } else if mode == "listen" {
-                ty -= sin(now * 6) * base * 0.006
+        if i < outlineEnd {
+            // 头盔轮廓：沿多边形取点
+            var verts = helmetVerts
+            for v in helmetVerts.dropFirst().dropLast().reversed() {
+                verts.append((-v.0, v.1))
             }
-        } else if i < ringCount + innerCount {
-            // 发光瞳孔（左右各 20 点）
-            let j = i - ringCount
-            let side: CGFloat = j < 20 ? -1 : 1
-            let k = j % 20
-            let a = CGFloat(Double(k) / 20.0 * Double.pi * 2)
-            let r = base * 0.018 * (1 + 0.2 * sin(now * 2.4 + Double(j)))
-            tx = cx + side * base * 0.125 + cos(a) * r
-            ty = eyeY + sin(a) * r
-        } else if i < ringCount + innerCount + coreCount {
-            // 面部外圈光晕（24 点）
-            let j = i - ringCount - innerCount
-            let a = -CGFloat.pi / 2 + CGFloat(Double(j) / 24.0 * Double.pi * 2) + rotation * 0.3
-            let r = base * (0.52 + 0.02 * sin(now * 1.1 + Double(j)))
+            let pts = polygonPoints(verts, count: OUTLINE)
+            let p = pts[i]
+            tx = cx + p.0 * base * breathe
+            ty = cy + p.1 * base * breathe
+        } else if i < eyesEnd {
+            // 发光斜眼（左右各 40 点：2 行 × 20）
+            let j = i - outlineEnd
+            let side: CGFloat = j < EYES / 2 ? -1 : 1
+            let k = j % (EYES / 2)
+            let row = k < 20 ? 0.0 : 0.014
+            let t = CGFloat(k % 20) / 19
+            let ex = (side < 0 ? -0.17 + 0.11 * t : 0.06 + 0.11 * t)
+            let ey = 0.10 + 0.035 * t + row
+            tx = cx + ex * base
+            ty = cy + ey * base
+            dy = CGFloat(sin(now * 2 + Double(k))) * base * 0.003
+        } else if i < browsEnd {
+            // 眉脊（左右各 16 点：2 行 × 8，V 形下压）
+            let j = i - eyesEnd
+            let side: CGFloat = j < BROWS / 2 ? -1 : 1
+            let k = j % (BROWS / 2)
+            let row = k < 8 ? 0.0 : 0.014
+            let t = CGFloat(k % 8) / 7
+            let bx = side < 0 ? -0.20 + 0.14 * t : 0.06 + 0.14 * t
+            let by = 0.175 - 0.045 * t + row
+            tx = cx + bx * base
+            ty = cy + by * base
+        } else if i < noseEnd {
+            // 鼻梁（16 点：2 列 × 8）
+            let j = i - browsEnd
+            let col: CGFloat = j < NOSE / 2 ? -0.012 : 0.012
+            let t = CGFloat(j % (NOSE / 2)) / 7
+            tx = cx + col * base
+            ty = cy + (0.07 - t * 0.09) * base
+        } else if i < mouthEnd {
+            // 嘴部格栅（4 条竖杠 × 8 点）
+            let j = i - noseEnd
+            let bar = j / 8
+            let bars: [CGFloat] = [-0.10, -0.033, 0.033, 0.10]
+            let t = CGFloat(j % 8) / 7
+            let mx = bars[bar]
+            var my = -0.13 - t * 0.045
+            if mode == "speak" {
+                my -= abs(sin(now * 16)) * 0.03
+            } else if mode == "listen" {
+                my -= sin(now * 6) * 0.006
+            }
+            tx = cx + mx * base
+            ty = cy + my * base
+        } else if i < pupilsEnd {
+            // 发光眼核（左右各 32 点）
+            let j = i - mouthEnd
+            let side: CGFloat = j < PUPILS / 2 ? -1 : 1
+            let k = j % (PUPILS / 2)
+            let a = CGFloat(Double(k) / Double(PUPILS / 2) * Double.pi * 2)
+            let r = base * 0.030 * (1 + 0.2 * sin(now * 2.4 + Double(k)))
+            tx = cx + side * base * 0.115 + cos(a) * r
+            ty = cy + base * 0.125 + sin(a) * r * 0.7
+        } else if i < haloEnd {
+            // 面具外圈光晕（48 点，缓慢旋转）
+            let j = i - pupilsEnd
+            let a = -CGFloat.pi / 2 + CGFloat(Double(j) / Double(HALO) * Double.pi * 2) + rotation * 0.3
+            let r = base * (0.56 + 0.02 * sin(now * 1.1 + Double(j)))
             tx = cx + cos(a) * r
-            ty = cy + sin(a) * r * 0.9
+            ty = cy + sin(a) * r * 1.05
         } else {
             // 漂浮光尘
-            let j = i - ringCount - innerCount - coreCount
+            let j = i - haloEnd
             let speed = 0.3 + 0.1 * Double(j % 3)
-            tx = cx + CGFloat(sin(now * speed + phase)) * base * 0.62
-            ty = cy + CGFloat(cos(now * speed * 0.83 + phase * 1.3)) * base * 0.62
-            dx = CGFloat(sin(now * 1.1 + phase)) * base * 0.01
-            dy = CGFloat(cos(now * 0.9 + phase)) * base * 0.01
+            tx = cx + CGFloat(sin(now * speed + phase)) * base * 0.66
+            ty = cy + CGFloat(cos(now * speed * 0.83 + phase * 1.3)) * base * 0.66
+            dx = CGFloat(sin(now * 1.1 + phase)) * base * 0.012
+            dy = CGFloat(cos(now * 0.9 + phase)) * base * 0.012
         }
         return (tx, ty, dx, dy)
     }
@@ -241,19 +311,24 @@ final class AvatarView: NSView {
     }
 
     private func drawParticles() {
+        let eyesEnd = OUTLINE + EYES
+        let mouthEnd = eyesEnd + BROWS + NOSE + MOUTH
+        let pupilsEnd = mouthEnd + PUPILS
+        let haloEnd = pupilsEnd + HALO
         for (index, p) in particles.enumerated() {
-            if showFace && index >= 120 && index < 160 {
-                // 发光瞳孔
+            if showHelmet && index >= eyesEnd && index < pupilsEnd {
+                // 眼睛（轮廓+眼核）：亮白发光
                 let glow = p.size * 4.5
-                NSColor(calibratedRed: 0.5, green: 0.9, blue: 1.0, alpha: 0.22).setFill()
+                NSColor(calibratedRed: 0.55, green: 0.92, blue: 1.0, alpha: 0.25).setFill()
                 NSBezierPath(ovalIn: NSRect(x: p.x - glow / 2, y: p.y - glow / 2,
                                             width: glow, height: glow)).fill()
-                NSColor(calibratedRed: 0.85, green: 0.98, blue: 1.0, alpha: 1).setFill()
-                NSBezierPath(ovalIn: NSRect(x: p.x - p.size * 0.8, y: p.y - p.size * 0.8,
-                                            width: p.size * 1.6, height: p.size * 1.6)).fill()
-            } else if showFace && index >= 160 && index < 184 {
-                // 外圈光晕：小一点、淡一点
-                NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.45).setFill()
+                let bright: CGFloat = index < mouthEnd ? 0.95 : 1.0
+                NSColor(calibratedRed: bright, green: 0.99, blue: 1.0, alpha: 1).setFill()
+                NSBezierPath(ovalIn: NSRect(x: p.x - p.size * 0.85, y: p.y - p.size * 0.85,
+                                            width: p.size * 1.7, height: p.size * 1.7)).fill()
+            } else if showHelmet && index >= haloEnd - HALO && index < haloEnd {
+                // 外圈光晕：淡一些
+                NSColor(calibratedRed: 0.3, green: 0.8, blue: 1.0, alpha: 0.4).setFill()
                 NSBezierPath(ovalIn: NSRect(x: p.x - p.size * 0.5, y: p.y - p.size * 0.5,
                                             width: p.size, height: p.size)).fill()
             } else {
@@ -271,7 +346,7 @@ final class AvatarView: NSView {
     private func drawRipples(cx: CGFloat, cy: CGFloat, base: CGFloat, now: TimeInterval) {
         for i in 0..<3 {
             let t = (now * 0.9 + Double(i) / 3).truncatingRemainder(dividingBy: 1.0)
-            let radius = base * CGFloat(0.16 + 0.34 * t)
+            let radius = base * CGFloat(0.18 + 0.36 * t)
             let alpha = CGFloat(1.0 - t)
             let path = NSBezierPath(ovalIn: NSRect(x: cx - radius, y: cy - radius,
                                                    width: radius * 2, height: radius * 2))
@@ -291,7 +366,7 @@ final class AvatarView: NSView {
             .kern: base * 0.03,
         ]
         let size = text.size(withAttributes: attrs)
-        let labelY = showFace ? cy - base * 0.44 : cy - base * 0.36
+        let labelY = showHelmet ? cy - base * 0.46 : cy - base * 0.36
         let origin = NSPoint(x: cx - size.width / 2, y: labelY)
         for (offset, alpha) in [(1.5, 0.25), (3.0, 0.15), (5.0, 0.08)] {
             let glowAttrs: [NSAttributedString.Key: Any] = [
@@ -371,12 +446,12 @@ final class PanelView: NSView {
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
-let avatarView = AvatarView(frame: NSRect(x: 0, y: 0, width: 420, height: 420))
+let avatarView = AvatarView(frame: NSRect(x: 0, y: 0, width: 460, height: 460))
 if let idx = CommandLine.arguments.firstIndex(of: "--mode"), idx + 1 < CommandLine.arguments.count {
     avatarView.mode = CommandLine.arguments[idx + 1]
 }
 
-let avatarWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+let avatarWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 460),
                             styleMask: [.borderless], backing: .buffered, defer: false)
 avatarWindow.isOpaque = false
 avatarWindow.backgroundColor = .clear
