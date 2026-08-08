@@ -2,6 +2,7 @@
 
 import math
 import os
+import random
 import shutil
 import struct
 import subprocess
@@ -55,6 +56,56 @@ def _tick(vol=0.5):
     ]
 
 
+def _noise(dur, vol=0.5, seed=7):
+    """白噪声（确定性，可复现）。"""
+    rnd = random.Random(seed)
+    n = int(_RATE * dur)
+    return [vol * (rnd.random() * 2 - 1) for _ in range(n)]
+
+
+def _riser(dur, vol=0.4):
+    """渐强铺垫：噪声 + 上升滑音，越来越强（紧张感）。"""
+    n = int(_RATE * dur)
+    noise = _noise(dur, vol * 0.5)
+    sweep = _sweep(150, 1400, dur, vol * 0.5)
+    return [(noise[i] + sweep[i]) * (i / n) ** 2.5 * 0.7 for i in range(n)]
+
+
+def _sub_drop(dur=0.8, vol=0.6):
+    """重低音下坠 90→35Hz（冲击感）。"""
+    n = int(_RATE * dur)
+    out = []
+    phase = 0.0
+    for i in range(n):
+        t = i / n
+        freq = 90 - 55 * t
+        phase += 2 * math.pi * freq / _RATE
+        out.append(vol * math.exp(-4.5 * t) * math.sin(phase))
+    return out
+
+
+def _metallic_hit(vol=0.5):
+    """金属撞击：高频快速衰减 + 多泛音。"""
+    n = int(_RATE * 0.5)
+    out = []
+    phase = 0.0
+    for i in range(n):
+        t = i / n
+        phase += 2 * math.pi * 1100 / _RATE
+        env = math.exp(-8 * t)
+        out.append(vol * env * (math.sin(phase) + 0.6 * math.sin(2 * phase) + 0.3 * math.sin(3.5 * phase)))
+    return out
+
+
+def _shimmer(vol=0.32):
+    """高频闪亮琶音（科幻收尾）。"""
+    notes = [1760, 2093, 2637, 3136, 3520]
+    out = []
+    for k, freq in enumerate(notes):
+        out = _mix(out, _tone(freq, 0.9, vol, harmonics=0.7), 0.10 * k)
+    return out
+
+
 def _sweep(f0, f1, dur, vol=0.5, harmonics=1.0):
     """频率滑音（带泛音），淡入淡出。"""
     n = int(_RATE * dur)
@@ -98,17 +149,13 @@ def _mix(base, extra, offset):
 
 
 def _build():
-    # 唤醒：星际穿越风格——低频管风琴长音渐起 + 时钟滴答 + 空气感（约 4.6 秒）
-    dur = 4.0
-    low = _organ(55.0, dur, 0.42, harmonics=1.0)     # A1 根音
-    fifth = _organ(82.4, dur, 0.30, harmonics=0.8)   # E2 五度
-    octave = _organ(110.0, dur, 0.20, harmonics=0.6) # A2 八度
-    wake = _mix(_mix(low, fifth, 0.0), octave, 0.0)
-    shimmer = _organ(220.0, dur, 0.07, harmonics=0.4)
-    wake = _mix(wake, shimmer, 0.3)
-    for k in range(5):
-        wake = _mix(wake, _tick(0.22), 0.5 + 0.9 * k)
-    wake = _echo(wake, 0.35, 0.26, 3)
+    # 唤醒：影院级——渐强铺垫(2s) → 低频冲击(2.0s) → 闪亮琶音收尾 + 回响（约 6 秒）
+    pad = _organ(55.0, 4.8, 0.30, harmonics=1.0)
+    wake = _mix(_riser(2.0, 0.40), pad, 0.0)
+    impact = _mix(_sub_drop(0.8, 0.60), _metallic_hit(0.50), 0.0)
+    wake = _mix(wake, impact, 2.0)
+    wake = _mix(wake, _shimmer(0.30), 2.05)
+    wake = _echo(wake, 0.30, 0.28, 4)
 
     # 聆听：三连升调（660→880→1320），约 0.8 秒
     listen = _mix(_tone(660, 0.12, 0.35), _tone(880, 0.12, 0.35), 0.10)
@@ -145,7 +192,7 @@ def _write_wav(path, samples):
 
 def ensure():
     """生成缺失的音效文件（源版本变化时自动重建）。"""
-    marker = os.path.join(_SFX_DIR, ".v5")
+    marker = os.path.join(_SFX_DIR, ".v6")
     if os.path.exists(marker):
         return
     for name, samples in _build().items():
