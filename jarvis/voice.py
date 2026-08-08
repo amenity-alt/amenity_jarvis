@@ -18,8 +18,8 @@ APP_ALIASES = {
     "系统设置": "System Settings",
 }
 
-# 变调量（半音）：降低让声音更低沉，模拟男声
-MALE_PITCH = -320
+# 变调量（半音）：轻微降低 + 处理链，得到科幻 AI 声线
+TECH_PITCH = -260
 
 WAKE_PHRASES = (
     "hey jarvis",
@@ -90,8 +90,8 @@ def _compile_voice_play():
         return None
 
 
-def speak(text, voice=None, male=True):
-    """朗读文本：先用 say 渲染成音频，再变调播放（更低沉）。"""
+def speak(text, voice=None, tech=True):
+    """朗读文本：先用 say 渲染成音频，再过科幻处理链播放。"""
     if not available():
         return False
     voice = voice or chinese_voice()
@@ -105,9 +105,9 @@ def speak(text, voice=None, male=True):
         result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=30)
         if result.returncode != 0 or not os.path.exists(tmp):
             return False
-        helper = _compile_voice_play() if male else None
+        helper = _compile_voice_play() if tech else None
         if helper:
-            subprocess.run([helper, tmp, str(MALE_PITCH)], timeout=60, check=False)
+            subprocess.run([helper, tmp, str(TECH_PITCH)], timeout=60, check=False)
         else:
             subprocess.run(["afplay", tmp], timeout=60, check=False)
         return True
