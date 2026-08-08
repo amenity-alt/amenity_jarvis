@@ -358,7 +358,7 @@ final class PanelView: NSView {
         case .sparks(_, let items):
             return headH + CGFloat(items.count) * 72 + pad
         case .convo:
-            return headH + CGFloat(min(max(convo.count, 1), 6)) * 19 + pad
+            return headH + CGFloat(min(max(convo.count, 1), 10)) * 20 + pad
         case .log:
             return headH + CGFloat(min(max(log.count, 1), 10)) * 18 + pad
         }
@@ -620,14 +620,14 @@ final class PanelView: NSView {
     }
 
     private func drawConvo(in rect: NSRect, below titleY: CGFloat) {
-        var y = titleY - 16
-        for line in Array(convo.suffix(6)) {
+        var y = titleY - 15
+        for line in Array(convo.suffix(10)) {
             let isJarvis = line.hasPrefix("Jarvis:")
             let color = isJarvis
                 ? NSColor(calibratedRed: 0.65, green: 0.95, blue: 1.0, alpha: 0.95)
                 : NSColor(calibratedRed: 0.55, green: 0.85, blue: 0.95, alpha: 0.8)
-            (truncate(line, 38) as NSString).draw(at: NSPoint(x: rect.minX + 16, y: y), withAttributes: attrs(color, 11))
-            y -= 19
+            (truncate(line, 38) as NSString).draw(at: NSPoint(x: rect.minX + 16, y: y), withAttributes: attrs(color, 11.5))
+            y -= 20
         }
     }
 
@@ -723,12 +723,12 @@ rightPanel.modules = [
     .keys(title: "核心状态", rows: [
         ("状态", "status"), ("模型", "model"), ("延迟", "latency"), ("会话", "session"),
     ], color: PALETTE[2]),
-    .convo(title: "实时对话", color: PALETTE[0]),
     .sparks(title: "接口与电量趋势", items: [
         ("接口延迟", "latency_hist", PALETTE[4]),
         ("电量趋势", "batt_hist", PALETTE[1]),
     ]),
     .log(title: "活动日志", color: PALETTE[5]),
+    .convo(title: "实时对话", color: PALETTE[0]),
 ]
 let rightWindow = NSWindow(contentRect: panelRect(width: panelW, left: false),
                            styleMask: [.borderless], backing: .buffered, defer: false)

@@ -97,6 +97,47 @@ def _metallic_hit(vol=0.5):
     return out
 
 
+def _brass(freq, dur, vol=0.5):
+    """铜管/弦乐式长音：锯齿堆叠、慢起音、轻微颤音（史诗电影感）。"""
+    n = int(_RATE * dur)
+    samples = []
+    phase = 0.0
+    for i in range(n):
+        t = i / n
+        attack = min(1.0, t / 0.9)
+        release = min(1.0, (1 - t) / 0.8)
+        trem = 1.0 + 0.03 * math.sin(2 * math.pi * 5.2 * i / _RATE)
+        env = attack * release * trem
+        s = math.sin(phase) + 0.5 * math.sin(2 * phase)
+        s += 0.33 * math.sin(3 * phase) + 0.2 * math.sin(4 * phase)
+        samples.append(vol * env * s / 2.03)
+        phase += 2 * math.pi * freq / _RATE
+    return samples
+
+
+def _timpani(freq=55, dur=0.6, vol=0.55):
+    """定音鼓式低频敲击：音高轻微下坠。"""
+    n = int(_RATE * dur)
+    out = []
+    phase = 0.0
+    for i in range(n):
+        t = i / n
+        phase += 2 * math.pi * freq * (1 - 0.25 * t) / _RATE
+        out.append(vol * math.exp(-6 * t) * math.sin(phase))
+    return out
+
+
+def _crash(vol=0.3, seed=11):
+    """镲片/撞击噪声：高频白噪声快速衰减。"""
+    rnd = random.Random(seed)
+    n = int(_RATE * 1.2)
+    out = []
+    for i in range(n):
+        t = i / n
+        out.append(vol * math.exp(-7 * t) * (rnd.random() * 2 - 1))
+    return out
+
+
 def _shimmer(vol=0.32):
     """高频闪亮琶音（科幻收尾）。"""
     notes = [1760, 2093, 2637, 3136, 3520]
@@ -149,13 +190,20 @@ def _mix(base, extra, offset):
 
 
 def _build():
-    # 唤醒：影院级——渐强铺垫(2s) → 低频冲击(2.0s) → 闪亮琶音收尾 + 回响（约 6 秒）
-    pad = _organ(55.0, 4.8, 0.30, harmonics=1.0)
-    wake = _mix(_riser(2.0, 0.40), pad, 0.0)
-    impact = _mix(_sub_drop(0.8, 0.60), _metallic_hit(0.50), 0.0)
-    wake = _mix(wake, impact, 2.0)
-    wake = _mix(wake, _shimmer(0.30), 2.05)
-    wake = _echo(wake, 0.30, 0.28, 4)
+    # 启动 Intro：史诗电影开场——低频铺垫 → 定音鼓心跳 → 铜管齐鸣
+    # → 大冲击 + 闪亮余韵 + 空间回响（约 8 秒）
+    intro = _mix(_organ(41.2, 5.0, 0.26, harmonics=1.1), _riser(4.2, 0.34), 0.0)
+    intro = _mix(intro, _timpani(55, 0.7, 0.50), 1.2)
+    intro = _mix(intro, _timpani(55, 0.7, 0.50), 2.4)
+    intro = _mix(intro, _brass(110.0, 3.2, 0.34), 2.6)    # A2 低音铜管
+    intro = _mix(intro, _brass(164.8, 3.2, 0.30), 2.7)    # E3
+    intro = _mix(intro, _brass(220.0, 3.4, 0.26), 2.8)    # A3
+    intro = _mix(intro, _brass(440.0, 3.4, 0.16), 2.9)    # A4 高音弦乐
+    intro = _mix(intro, _sub_drop(0.9, 0.60), 5.6)
+    intro = _mix(intro, _metallic_hit(0.50), 5.6)
+    intro = _mix(intro, _crash(0.26, 13), 5.6)
+    intro = _mix(intro, _shimmer(0.30), 5.7)
+    wake = _echo(intro, 0.32, 0.30, 5)
 
     # 聆听：三连升调（660→880→1320），约 0.8 秒
     listen = _mix(_tone(660, 0.12, 0.35), _tone(880, 0.12, 0.35), 0.10)
@@ -192,7 +240,7 @@ def _write_wav(path, samples):
 
 def ensure():
     """生成缺失的音效文件（源版本变化时自动重建）。"""
-    marker = os.path.join(_SFX_DIR, ".v6")
+    marker = os.path.join(_SFX_DIR, ".v7")
     if os.path.exists(marker):
         return
     for name, samples in _build().items():
