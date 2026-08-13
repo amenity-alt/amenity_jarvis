@@ -1,0 +1,16 @@
+{
+  "change_point_id": "CP-001",
+  "change_type": "ADD_COLUMN",
+  "target_schema": "dwd",
+  "target_table": "dwd_customer",
+  "target_column": "customer_level",
+  "source_schema": "ods",
+  "source_table": "ods_customer",
+  "source_column": "customer_level",
+  "position": {
+    "type": "AFTER",
+    "column": "customer_name"
+  },
+  "reason": "客户宽表新增客户等级字段",
+  "confidence": 0.95
+}

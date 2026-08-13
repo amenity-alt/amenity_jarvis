@@ -1,0 +1,17 @@
+{
+  "instruction_id": "CI-001",
+  "job_name": "job_customer_daily",
+  "target_section": "INSERT_001",
+  "operations": [
+    {
+      "operation": "ADD_COLUMN",
+      "target_column": "customer_level",
+      "expression": "src.customer_level AS customer_level",
+      "position": {
+        "type": "AFTER",
+        "column": "customer_name"
+      },
+      "reason": "新增客户等级字段"
+    }
+  ]
+}
